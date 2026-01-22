@@ -13,10 +13,10 @@ import pathlib
 import random
 import json
 
-import torchaudio
 import torch
 import soundfile as sf
 import numpy as np
+from scipy import signal
 from tqdm import tqdm
 from huggingface_hub import hf_hub_download
 
@@ -90,7 +90,11 @@ def main():
         try:
             audio, sr = load_audio(audio_path)
             if sr != SAMPLE_RATE:
-                audio = torchaudio.functional.resample(audio, sr, SAMPLE_RATE)
+                # Resample using scipy instead of torchaudio
+                num_samples = int(len(audio) * SAMPLE_RATE / sr)
+                audio_np = audio.numpy()
+                audio_np = signal.resample(audio_np, num_samples)
+                audio = torch.from_numpy(audio_np.astype(np.float32))
             audio = audio.unsqueeze(0)  # Add batch dimension: (samples,) -> (1, samples)
             with torch.no_grad():
                 audio_tokens = encoder(audio)
