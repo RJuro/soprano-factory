@@ -15,6 +15,8 @@ import json
 
 import torchaudio
 import torch
+import soundfile as sf
+import numpy as np
 from tqdm import tqdm
 from huggingface_hub import hf_hub_download
 
@@ -28,15 +30,17 @@ def load_audio(filepath):
     """
     Load audio file and return normalized float tensor in range [-1, 1].
     Handles stereo to mono conversion automatically.
+    Uses soundfile to avoid torchcodec/FFmpeg issues.
     """
-    audio, sr = torchaudio.load(filepath)
+    # Use soundfile instead of torchaudio to avoid torchcodec dependency
+    audio, sr = sf.read(filepath, dtype='float32')
 
-    # Convert stereo to mono by averaging channels
-    if audio.shape[0] > 1:
-        audio = audio.mean(dim=0, keepdim=True)
+    # Convert to torch tensor
+    audio = torch.from_numpy(audio)
 
-    # audio is now shape (1, samples), squeeze to (samples,)
-    audio = audio.squeeze(0)
+    # Handle stereo to mono (soundfile returns (samples, channels) for stereo)
+    if audio.dim() > 1:
+        audio = audio.mean(dim=1)
 
     return audio, sr
 
