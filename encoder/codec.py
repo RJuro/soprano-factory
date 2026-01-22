@@ -3,7 +3,8 @@ Adapted from https://github.com/gemelo-ai/vocos
 """
 from typing import Optional
 
-import torchaudio
+import numpy as np
+import librosa
 import torch
 from torch import nn
 
@@ -164,13 +165,16 @@ class Encoder(nn.Module):
         self.encoder_initial_channels = num_input_mels
         self.bottleneck_channels = 5
 
-        self.mel_spec = torchaudio.transforms.MelSpectrogram(
-            sample_rate=32000,
-            n_fft=self.mel_n_fft,
-            hop_length=self.mel_hop_length,
-            n_mels=num_input_mels,
-            center=True,
-            power=1,
+        # Mel spectrogram parameters (using librosa instead of torchaudio)
+        self.sample_rate = 32000
+        self.n_fft = self.mel_n_fft
+        self.n_mels = num_input_mels
+        # Create mel filterbank
+        self.register_buffer(
+            'mel_basis',
+            torch.from_numpy(
+                librosa.filters.mel(sr=self.sample_rate, n_fft=self.n_fft, n_mels=num_input_mels)
+            ).float()
         )
         self.encoder = VocosBackbone(input_channels=self.encoder_initial_channels,
             dim=self.encoder_dim,
@@ -192,10 +196,25 @@ class Encoder(nn.Module):
         return x
 
     def preprocess(self, audio):
-        if audio.dim() == 2: # raw audio
-            x = self.mel_spec(audio)
+        if audio.dim() == 2:  # raw audio (B, T)
+            # Compute STFT
+            window = torch.hann_window(self.n_fft, device=audio.device)
+            stft = torch.stft(
+                audio,
+                n_fft=self.n_fft,
+                hop_length=self.mel_hop_length,
+                win_length=self.n_fft,
+                window=window,
+                center=True,
+                return_complex=True
+            )
+            # Get magnitude (power=1)
+            mag = torch.abs(stft)  # (B, n_fft//2+1, T)
+            # Apply mel filterbank
+            mel_basis = self.mel_basis.to(audio.device)
+            x = torch.matmul(mel_basis, mag)  # (B, n_mels, T)
             x = safe_log(x)
-        elif audio.dim() == 3: # mel spectrogram
+        elif audio.dim() == 3:  # mel spectrogram
             x = audio
         return x
 
