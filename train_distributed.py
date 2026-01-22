@@ -5,6 +5,7 @@ Supports multi-GPU training with PyTorch DDP.
 Usage:
     Single GPU:  python train_distributed.py --save-dir outputs/model
     Multi-GPU:   torchrun --nproc_per_node=4 train_distributed.py --save-dir outputs/model
+    With wandb:  python train_distributed.py --save-dir outputs/model --wandb --wandb-project soprano-danish
 """
 import argparse
 import os
@@ -14,6 +15,13 @@ import time
 
 import numpy as np
 import torch
+
+# Optional wandb for monitoring
+try:
+    import wandb
+    WANDB_AVAILABLE = True
+except ImportError:
+    WANDB_AVAILABLE = False
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader
@@ -33,6 +41,10 @@ def get_args():
     parser.add_argument("--lr", default=5e-4, type=float)
     parser.add_argument("--val-freq", default=250, type=int)
     parser.add_argument("--save-freq", default=1000, type=int)
+    # Wandb monitoring
+    parser.add_argument("--wandb", action="store_true", help="Enable wandb logging")
+    parser.add_argument("--wandb-project", default="soprano-tts", help="Wandb project name")
+    parser.add_argument("--wandb-run", default=None, help="Wandb run name (auto-generated if not set)")
     return parser.parse_args()
 
 
@@ -58,13 +70,14 @@ def is_main_process(rank):
 
 
 class Trainer:
-    def __init__(self, args, rank, local_rank, world_size, distributed):
+    def __init__(self, args, rank, local_rank, world_size, distributed, use_wandb=False):
         self.args = args
         self.rank = rank
         self.local_rank = local_rank
         self.world_size = world_size
         self.distributed = distributed
         self.device = f"cuda:{local_rank}"
+        self.use_wandb = use_wandb and is_main_process(rank)
 
         # Hyperparameters
         self.batch_size = args.batch_size
@@ -198,8 +211,15 @@ class Trainer:
 
         if is_main_process(self.rank):
             print(f"val text loss: {val_text_loss.item():.4f} | val audio loss: {val_audio_loss.item():.4f} | val acc: {val_acc.item():.4f}")
+            if self.use_wandb:
+                wandb.log({
+                    "val/audio_loss": val_audio_loss.item(),
+                    "val/text_loss": val_text_loss.item(),
+                    "val/accuracy": val_acc.item(),
+                })
 
         self.model.train()
+        return val_audio_loss.item(), val_text_loss.item(), val_acc.item()
 
     def save_checkpoint(self, step):
         if is_main_process(self.rank):
@@ -262,6 +282,19 @@ class Trainer:
                 f"{dt:.0f}ms | {tokens_per_sec:.0f} t/s"
             )
 
+            # Wandb logging
+            if self.use_wandb and step % 10 == 0:  # Log every 10 steps
+                wandb.log({
+                    "train/audio_loss": audio_loss.item(),
+                    "train/text_loss": text_loss.item(),
+                    "train/accuracy": acc.item(),
+                    "train/lr": lr,
+                    "train/grad_norm": norm.item() if hasattr(norm, 'item') else norm,
+                    "train/tokens_per_sec": tokens_per_sec,
+                    "train/step_time_ms": dt,
+                    "step": step,
+                })
+
             # Save checkpoint
             if self.args.save_freq > 0 and (step + 1) % self.args.save_freq == 0:
                 self.save_checkpoint(step + 1)
@@ -282,14 +315,39 @@ def main():
         os.makedirs(args.save_dir, exist_ok=True)
         print(f"Save directory: {args.save_dir}")
 
+    # Initialize wandb on main process
+    use_wandb = False
+    if args.wandb and is_main_process(rank):
+        if WANDB_AVAILABLE:
+            wandb.init(
+                project=args.wandb_project,
+                name=args.wandb_run,
+                config={
+                    "max_steps": args.max_steps,
+                    "batch_size": args.batch_size,
+                    "lr": args.lr,
+                    "world_size": world_size,
+                    "effective_batch_size": args.batch_size * world_size,
+                    "model": "ekwek/Soprano-1.1-80M",
+                    "dataset": str(args.input_dir),
+                }
+            )
+            use_wandb = True
+            print(f"Wandb initialized: {wandb.run.url}")
+        else:
+            print("Warning: wandb requested but not installed. Run: pip install wandb")
+
     # Set seeds
     seed = 1337 + rank
     torch.manual_seed(seed)
     np.random.seed(seed)
     random.seed(seed)
 
-    trainer = Trainer(args, rank, local_rank, world_size, distributed)
+    trainer = Trainer(args, rank, local_rank, world_size, distributed, use_wandb=use_wandb)
     trainer.train()
+
+    if use_wandb:
+        wandb.finish()
 
     cleanup_distributed()
 

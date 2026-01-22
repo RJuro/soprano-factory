@@ -61,7 +61,7 @@ singularity exec --nv --cleanenv \
 
     echo "[soprano] Installing dependencies..."
     python3 -m pip install --no-cache-dir -U pip
-    python3 -m pip install --no-cache-dir transformers "datasets<3.0" huggingface_hub tqdm soundfile numpy scipy
+    python3 -m pip install --no-cache-dir transformers "datasets<3.0" huggingface_hub tqdm soundfile numpy scipy wandb
 
     python3 -c "import torch; print(f\"[soprano] PyTorch {torch.__version__}, CUDA: {torch.cuda.is_available()}, GPUs: {torch.cuda.device_count()}\")"
 
@@ -106,7 +106,10 @@ singularity exec --nv --cleanenv \
         --batch-size 12 \
         --lr 1e-4 \
         --val-freq 500 \
-        --save-freq 1000
+        --save-freq 1000 \
+        --wandb \
+        --wandb-project soprano-danish \
+        --wandb-run "danish-tts-${SLURM_JOB_ID}"
 
     echo "[soprano] Training complete!"
     ls -la outputs/
