@@ -18,7 +18,7 @@ def get_args():
     parser = argparse.ArgumentParser(description="Prepare Coral TTS dataset")
     parser.add_argument("--output-dir", default="coral_danish_dataset", help="Output directory")
     parser.add_argument("--max-samples", type=int, default=None, help="Limit number of samples (default: all)")
-    parser.add_argument("--dataset", default="alexandrainst/coral-tts", help="HuggingFace dataset name")
+    parser.add_argument("--dataset", default="CoRal-project/coral-tts", help="HuggingFace dataset name")
     parser.add_argument("--split", default="train", help="Dataset split")
     return parser.parse_args()
 

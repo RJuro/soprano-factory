@@ -58,7 +58,7 @@ elif [ -f "${HOME}/.venv/soprano/bin/activate" ]; then
 fi
 
 # Install dependencies if needed
-pip install -q torch torchaudio transformers datasets huggingface_hub tqdm soundfile
+pip install -q torch torchaudio transformers "datasets<3.0" huggingface_hub tqdm soundfile numpy
 
 # Step 1: Prepare dataset (if not already done)
 if [ ! -f "${DATA_DIR}/train.json" ]; then
