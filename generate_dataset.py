@@ -13,7 +13,6 @@ import pathlib
 import random
 import json
 
-from scipy.io import wavfile
 import torchaudio
 import torch
 from tqdm import tqdm
@@ -23,6 +22,25 @@ from encoder.codec import Encoder
 
 
 SAMPLE_RATE = 32000
+
+
+def load_audio(filepath):
+    """
+    Load audio file and return normalized float tensor in range [-1, 1].
+    Handles stereo to mono conversion automatically.
+    """
+    audio, sr = torchaudio.load(filepath)
+
+    # Convert stereo to mono by averaging channels
+    if audio.shape[0] > 1:
+        audio = audio.mean(dim=0, keepdim=True)
+
+    # audio is now shape (1, samples), squeeze to (samples,)
+    audio = audio.squeeze(0)
+
+    return audio, sr
+
+
 SEED = 42
 VAL_PROP = 0.1
 VAL_MAX = 512
@@ -52,22 +70,37 @@ def main():
     with open(f'{input_dir}/metadata.txt', encoding='utf-8') as f:
         data = f.read().split('\n')
         for line in data:
+            line = line.strip()
+            if not line or '|' not in line:
+                continue
             filename, transcript = line.split('|', maxsplit=1)
             files.append((filename, transcript))
     print(f'{len(files)} samples located in directory.')
 
     print("Encoding audio.")
     dataset = []
+    skipped = []
     for sample in tqdm(files):
         filename, transcript = sample
-        sr, audio = wavfile.read(f'{input_dir}/wavs/{filename}.wav')
-        audio = torch.from_numpy(audio)
-        if sr != SAMPLE_RATE:
-            audio = torchaudio.functional.resample(audio, sr, SAMPLE_RATE)
-        audio = audio.unsqueeze(0)
-        with torch.no_grad():
-            audio_tokens = encoder(audio)
-        dataset.append([transcript, audio_tokens.squeeze(0).tolist()])
+        audio_path = f'{input_dir}/wavs/{filename}.wav'
+        try:
+            audio, sr = load_audio(audio_path)
+            if sr != SAMPLE_RATE:
+                audio = torchaudio.functional.resample(audio, sr, SAMPLE_RATE)
+            audio = audio.unsqueeze(0)  # Add batch dimension: (samples,) -> (1, samples)
+            with torch.no_grad():
+                audio_tokens = encoder(audio)
+            dataset.append([transcript, audio_tokens.squeeze(0).tolist()])
+        except Exception as e:
+            skipped.append((filename, str(e)))
+            continue
+
+    if skipped:
+        print(f"Warning: Skipped {len(skipped)} files due to errors:")
+        for filename, error in skipped[:10]:  # Show first 10
+            print(f"  - {filename}: {error}")
+        if len(skipped) > 10:
+            print(f"  ... and {len(skipped) - 10} more")
 
     print("Generating train/test splits.")
     random.seed(SEED)
