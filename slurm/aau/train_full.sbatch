@@ -102,11 +102,11 @@ singularity exec --nv --cleanenv \
     torchrun --nproc_per_node=4 train_distributed.py \
         --input-dir coral_danish_dataset \
         --save-dir outputs/soprano-danish-$(date +%Y%m%d) \
-        --max-steps 10000 \
+        --max-steps 20000 \
         --batch-size 12 \
         --lr 1e-4 \
         --val-freq 500 \
-        --save-freq 1000 \
+        --save-freq 2000 \
         --wandb \
         --wandb-project soprano-danish \
         --wandb-run "danish-tts-${SLURM_JOB_ID}"
