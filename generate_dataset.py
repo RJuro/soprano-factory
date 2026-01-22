@@ -65,7 +65,8 @@ def main():
     print("Loading model.")
     encoder = Encoder()
     encoder_path = hf_hub_download(repo_id='ekwek/Soprano-Encoder', filename='encoder.pth')
-    encoder.load_state_dict(torch.load(encoder_path))
+    # strict=False: mel_basis is computed fresh, old torchaudio mel_spec keys can be ignored
+    encoder.load_state_dict(torch.load(encoder_path), strict=False)
     print("Model loaded.")
 
 
