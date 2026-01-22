@@ -3,15 +3,15 @@
 #SBATCH --output=soprano_train_%j.log
 #SBATCH --error=soprano_train_%j.err
 #SBATCH --partition=batch
-#SBATCH --qos=allgpus
-#SBATCH --gres=gpu:l40s:4
-#SBATCH --mem=128G
-#SBATCH --cpus-per-task=16
-#SBATCH --time=12:00:00
+#SBATCH --qos=short
+#SBATCH --gres=gpu:1
+#SBATCH --mem=64G
+#SBATCH --cpus-per-task=8
+#SBATCH --time=03:00:00
 
 # ============================================
 # Soprano Danish TTS - Full Training
-# AAU AI Cloud - 4x L40S GPUs
+# AAU AI Cloud - 1 GPU (any type)
 # ============================================
 # Full pipeline:
 #   1. Download full CoRal-TTS dataset (~18k samples)
@@ -99,17 +99,14 @@ singularity exec --nv --cleanenv \
     export MASTER_ADDR=localhost
     export MASTER_PORT=29500
 
-    torchrun --nproc_per_node=4 train_distributed.py \
+    python3 train_distributed.py \
         --input-dir coral_danish_dataset \
         --save-dir outputs/soprano-danish-$(date +%Y%m%d) \
         --max-steps 20000 \
-        --batch-size 12 \
+        --batch-size 16 \
         --lr 1e-4 \
         --val-freq 500 \
-        --save-freq 2000 \
-        --wandb \
-        --wandb-project soprano-danish \
-        --wandb-run "danish-tts-${SLURM_JOB_ID}"
+        --save-freq 2000
 
     echo "[soprano] Training complete!"
     ls -la outputs/
