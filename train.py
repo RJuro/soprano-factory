@@ -129,7 +129,7 @@ def evaluate(val_dataloader):
     model.train()
 
 
-tokenizer = AutoTokenizer.from_pretrained('ekwek/Soprano-80M')
+tokenizer = AutoTokenizer.from_pretrained('ekwek/Soprano-1.1-80M')
 if __name__ == '__main__':
     device_type = "cuda" if device.startswith("cuda") else "cpu"
     torch.manual_seed(seed)
@@ -143,7 +143,7 @@ if __name__ == '__main__':
     cooldown_steps = int(max_steps * cooldown_ratio)
 
     # model
-    model = AutoModelForCausalLM.from_pretrained('ekwek/Soprano-80M')
+    model = AutoModelForCausalLM.from_pretrained('ekwek/Soprano-1.1-80M')
     model.to(torch.bfloat16).to(device)
     model.train()
 

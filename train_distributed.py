@@ -83,8 +83,8 @@ class Trainer:
         self.cooldown_steps = int(self.max_steps * self.cooldown_ratio)
 
         # Load tokenizer and model
-        self.tokenizer = AutoTokenizer.from_pretrained('ekwek/Soprano-80M')
-        self.model = AutoModelForCausalLM.from_pretrained('ekwek/Soprano-80M')
+        self.tokenizer = AutoTokenizer.from_pretrained('ekwek/Soprano-1.1-80M')
+        self.model = AutoModelForCausalLM.from_pretrained('ekwek/Soprano-1.1-80M')
         self.model.to(torch.bfloat16).to(self.device)
 
         if distributed:
