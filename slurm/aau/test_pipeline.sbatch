@@ -62,7 +62,7 @@ singularity exec --nv --cleanenv \
 
     echo "[soprano] Installing dependencies..."
     python3 -m pip install --no-cache-dir -U pip
-    python3 -m pip install --no-cache-dir transformers "datasets<3.0" huggingface_hub tqdm soundfile numpy
+    python3 -m pip install --no-cache-dir transformers "datasets<3.0" huggingface_hub tqdm soundfile numpy torchaudio
 
     # Verify torch is available
     python3 -c "import torch; print(f\"[soprano] PyTorch {torch.__version__}, CUDA: {torch.cuda.is_available()}\")"
