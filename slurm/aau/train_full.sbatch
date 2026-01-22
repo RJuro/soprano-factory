@@ -4,9 +4,9 @@
 #SBATCH --error=soprano_train_%j.err
 #SBATCH --partition=batch
 #SBATCH --qos=short
-#SBATCH --gres=gpu:1
-#SBATCH --mem=64G
-#SBATCH --cpus-per-task=8
+#SBATCH --gres=gpu:a40:2
+#SBATCH --mem=96G
+#SBATCH --cpus-per-task=12
 #SBATCH --time=03:00:00
 
 # ============================================
@@ -93,13 +93,13 @@ singularity exec --nv --cleanenv \
     # =========================================
     # Step 3: Distributed training
     # =========================================
-    echo "[soprano] Step 3: Training with 4 GPUs..."
+    echo "[soprano] Step 3: Training with 2x A40 GPUs..."
 
     # DDP settings
     export MASTER_ADDR=localhost
     export MASTER_PORT=29500
 
-    python3 train_distributed.py \
+    torchrun --nproc_per_node=2 train_distributed.py \
         --input-dir coral_danish_dataset \
         --save-dir outputs/soprano-danish-$(date +%Y%m%d) \
         --max-steps 20000 \
