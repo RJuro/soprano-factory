@@ -27,6 +27,14 @@ MASTER_PORT=$((29500 + RANDOM % 1000))
 OUTPUT_DIR="outputs/soprano-danish-a40-$(date +%Y%m%d_%H%M)"
 INPUT_DIR="coral_danish_dataset"
 
+# IMPORTANT: Ignore user's ~/.local packages to avoid version conflicts
+export PYTHONNOUSERSITE=1
+
+# Use project-local package directory
+export PIP_TARGET="${SLURM_SUBMIT_DIR}/.packages"
+export PYTHONPATH="${PIP_TARGET}:${PYTHONPATH}"
+mkdir -p "${PIP_TARGET}"
+
 echo "============================================"
 echo "Soprano TTS Training - A40 x${NUM_GPUS}"
 echo "============================================"
@@ -47,10 +55,13 @@ export SINGULARITY_TMPDIR="/raid/${USER}/tmp"
 export SINGULARITY_CACHEDIR="/raid/${USER}/cache"
 mkdir -p "${SINGULARITY_TMPDIR}" "${SINGULARITY_CACHEDIR}"
 
-# Install deps in container (pinned versions for PyTorch 2.6 compatibility)
-echo "Installing dependencies..."
-singularity exec --nv "${CONTAINER}" \
-    pip install --user -q --force-reinstall "transformers==4.40.2" "datasets<3.0" huggingface_hub tqdm soundfile einops
+# Install deps to project-local directory (container has torch, torchaudio, numpy)
+echo "Installing dependencies to ${PIP_TARGET}..."
+singularity exec --nv \
+    --env PYTHONNOUSERSITE=1 \
+    --env PIP_TARGET="${PIP_TARGET}" \
+    "${CONTAINER}" \
+    pip install -q "transformers==4.40.2" "datasets<3.0" "tokenizers<0.20" huggingface_hub tqdm soundfile einops
 
 echo ""
 echo "Starting distributed training..."
@@ -60,7 +71,10 @@ echo "Output: ${OUTPUT_DIR}"
 echo "--------------------------------------------"
 
 # Run distributed training
-singularity exec --nv "${CONTAINER}" \
+singularity exec --nv \
+    --env PYTHONNOUSERSITE=1 \
+    --env PYTHONPATH="${PIP_TARGET}" \
+    "${CONTAINER}" \
     torchrun \
         --nproc_per_node=${NUM_GPUS} \
         --master_port=${MASTER_PORT} \
