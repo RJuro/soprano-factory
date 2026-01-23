@@ -22,6 +22,7 @@ cd "${SLURM_SUBMIT_DIR:-$(pwd)}"
 mkdir -p logs outputs/audio
 
 # Configuration
+CONTAINER="/home/container/pytorch/pytorch_24.09.sif"
 MODEL_PATH="${MODEL_PATH:-outputs/soprano-danish-a40-20260123_1228_step500}"
 TEXT="${1:-Hej, dette er en test af Soprano.}"
 OUTPUT_NAME="${2:-output_$(date +%Y%m%d_%H%M%S)}"
@@ -31,34 +32,26 @@ echo "============================================"
 echo "Soprano TTS Inference"
 echo "Job ID: ${SLURM_JOB_ID}"
 echo "Node: ${SLURM_NODELIST}"
+nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
 echo "============================================"
 echo "Model: ${MODEL_PATH}"
 echo "Text: ${TEXT}"
 echo "Output: ${OUTPUT_PATH}"
 echo "============================================"
 
-# Check container exists
-if [ ! -f "containers/pytorch.sif" ]; then
-    echo "ERROR: Container not found. Run first:"
-    echo "  sbatch slurm/aau/pull_container.sbatch"
-    exit 1
-fi
+singularity exec --nv "$CONTAINER" bash -c '
+set -e
 
-# Set Singularity environment
-export SINGULARITY_TMPDIR="/raid/${USER}/tmp"
-export SINGULARITY_CACHEDIR="/raid/${USER}/cache"
-mkdir -p "${SINGULARITY_TMPDIR}" "${SINGULARITY_CACHEDIR}"
+# Install dependencies
+pip install --user -q soprano-tts pydub soundfile 2>/dev/null || true
 
-# Install soprano-tts and run inference
-singularity exec --nv containers/pytorch.sif bash -c "
-    pip install -q soprano-tts pydub soundfile 2>/dev/null || true
-    python inference.py \
-        --model '${MODEL_PATH}' \
-        --text '${TEXT}' \
-        --output '${OUTPUT_PATH}' \
-        --temperature 0.7 \
-        --top-p 0.95
-"
+python inference.py \
+    --model "'"${MODEL_PATH}"'" \
+    --text "'"${TEXT}"'" \
+    --output "'"${OUTPUT_PATH}"'" \
+    --temperature 0.7 \
+    --top-p 0.95
+'
 
 echo "============================================"
 echo "Done! Output saved to ${OUTPUT_PATH}"
