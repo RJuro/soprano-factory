@@ -24,6 +24,9 @@ mkdir -p logs outputs/audio
 
 source venv/bin/activate 2>/dev/null || true
 
+# Install dependencies if needed
+pip install -q soprano-tts pydub soundfile 2>/dev/null || true
+
 # Configuration
 MODEL_PATH="${MODEL_PATH:-outputs/soprano-danish-a40-20260123_1228_step500}"
 INPUT_FILE="${1:-texts.txt}"
