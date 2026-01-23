@@ -59,7 +59,7 @@ torchrun --nproc_per_node=4 --master_port=29500 \
     --input-dir coral_danish_dataset \
     --save-dir outputs/soprano-danish-a40-$(date +%Y%m%d_%H%M) \
     --max-steps 2500 \
-    --batch-size 48 \
+    --batch-size 16 \
     --save-freq 500
 '
 
