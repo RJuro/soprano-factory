@@ -42,8 +42,13 @@ echo "============================================"
 singularity exec --nv "$CONTAINER" bash -c '
 set -e
 
-# Install dependencies
-pip install --user -q soprano-tts pydub soundfile 2>/dev/null || true
+# Install compatible versions (same as training script)
+pip install --user --no-cache-dir -q \
+    "numpy<2" \
+    "tokenizers>=0.20" \
+    "transformers>=4.51" \
+    "huggingface_hub>=0.20" \
+    soprano-tts pydub soundfile 2>/dev/null || true
 
 python inference.py \
     --model "'"${MODEL_PATH}"'" \
