@@ -17,6 +17,8 @@ echo "Node: ${SLURM_NODELIST}"
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
 echo "============================================"
 
+CONTAINER="/home/container/pytorch/pytorch_24.09.sif"
+
 # Verify dataset
 if [ ! -f "coral_danish_dataset/train.json" ]; then
     echo "ERROR: Dataset not found. Run data prep first."
@@ -25,30 +27,31 @@ fi
 
 echo "Starting training on 4 A40 GPUs..."
 
-# Force reinstall tokenizers to get a working version (uninstall first to clear any old .so files)
-pip uninstall -y tokenizers transformers 2>/dev/null || true
-pip install --user --no-cache-dir \
-    "numpy<2" \
-    "tokenizers>=0.20" \
-    "transformers>=4.44,<4.50" \
-    huggingface_hub \
-    einops \
-    tqdm \
-    soundfile
+# Completely nuke old tokenizers to fix ModelWrapper error
+rm -rf ~/.local/lib/python*/site-packages/tokenizers*
+rm -rf ~/.local/lib/python*/site-packages/huggingface*
+rm -rf ~/.local/lib/python*/site-packages/transformers*
+rm -rf ~/.cache/huggingface/hub/models--ekwek--Soprano-80M 2>/dev/null || true
 
-# Verify versions
+singularity exec --nv "$CONTAINER" bash -c '
+set -e
+
+# Force reinstall with specific versions
+pip install --user --no-cache-dir --force-reinstall \
+    "tokenizers==0.20.3" \
+    "transformers==4.44.2" \
+    "huggingface_hub>=0.20" \
+    einops
+
+# Verify what is actually loaded
 echo "=== Package verification ==="
 python -c "
-import numpy, torch, transformers, tokenizers
-print(f'numpy={numpy.__version__}')
-print(f'torch={torch.__version__}')
-print(f'transformers={transformers.__version__}')
-print(f'tokenizers={tokenizers.__version__}')
-print(f'CUDA available: {torch.cuda.is_available()}')
+import tokenizers, transformers
+print(f\"tokenizers={tokenizers.__version__} from {tokenizers.__file__}\")
+print(f\"transformers={transformers.__version__} from {transformers.__file__}\")
 "
 echo "==========================="
 
-# Run distributed training
 torchrun --nproc_per_node=4 --master_port=29500 \
     train_distributed.py \
     --input-dir coral_danish_dataset \
@@ -56,5 +59,6 @@ torchrun --nproc_per_node=4 --master_port=29500 \
     --max-steps 2500 \
     --batch-size 48 \
     --save-freq 500
+'
 
 echo "Done!"
