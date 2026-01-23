@@ -32,7 +32,10 @@ def get_args():
     parser.add_argument("--batch-size", default=48, type=int, help="Batch size per GPU")
     parser.add_argument("--lr", default=5e-4, type=float)
     parser.add_argument("--val-freq", default=250, type=int)
+    parser.add_argument("--val-steps", default=5, type=int, help="Number of validation batches to average over")
     parser.add_argument("--save-freq", default=1000, type=int)
+    parser.add_argument("--save-best", action="store_true", help="Save best checkpoint based on validation loss")
+    parser.add_argument("--log-file", type=pathlib.Path, help="Path to CSV file for logging metrics")
     return parser.parse_args()
 
 
@@ -77,6 +80,16 @@ class Trainer:
         self.text_factor = 0.01
         self.betas = (0.9, 0.95)
         self.weight_decay = 0.1
+        self.val_steps = args.val_steps
+
+        # Best checkpoint tracking
+        self.best_val_loss = float('inf')
+
+        # CSV logging
+        self.log_file = args.log_file
+        if self.log_file and is_main_process(rank):
+            with open(self.log_file, 'w') as f:
+                f.write("step,train_audio_loss,train_text_loss,train_acc,val_audio_loss,val_text_loss,val_acc,lr,grad_norm,tokens_per_sec\n")
 
         # LR schedule
         self.warmup_steps = int(self.max_steps * self.warmup_ratio)
@@ -176,30 +189,57 @@ class Trainer:
         return audio_loss, text_loss, acc
 
     @torch.no_grad()
-    def evaluate(self):
+    def evaluate(self, step=None):
         self.model.eval()
         val_audio_loss = torch.tensor(0.0, device=self.device)
         val_text_loss = torch.tensor(0.0, device=self.device)
         val_acc = torch.tensor(0.0, device=self.device)
 
-        x, y = next(iter(self.val_dataloader))
-        x, y = x.to(self.device), y.to(self.device)
-        with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
-            logits = self.model(x).logits if not self.distributed else self.model.module(x).logits
-            audio_loss, text_loss, acc = self.compute_loss(logits, y)
-        val_audio_loss += audio_loss
-        val_text_loss += text_loss
-        val_acc += acc
+        val_iter = iter(self.val_dataloader)
+        num_steps = min(self.val_steps, len(self.val_dataloader))
+
+        for _ in range(num_steps):
+            try:
+                x, y = next(val_iter)
+            except StopIteration:
+                break
+            x, y = x.to(self.device), y.to(self.device)
+            with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+                logits = self.model(x).logits if not self.distributed else self.model.module(x).logits
+                audio_loss, text_loss, acc = self.compute_loss(logits, y)
+            val_audio_loss += audio_loss
+            val_text_loss += text_loss
+            val_acc += acc
+
+        # Average over steps
+        val_audio_loss /= num_steps
+        val_text_loss /= num_steps
+        val_acc /= num_steps
 
         if self.distributed:
             dist.all_reduce(val_audio_loss, op=dist.ReduceOp.AVG)
             dist.all_reduce(val_text_loss, op=dist.ReduceOp.AVG)
             dist.all_reduce(val_acc, op=dist.ReduceOp.AVG)
 
+        val_audio_loss_val = val_audio_loss.item()
+        val_text_loss_val = val_text_loss.item()
+        val_acc_val = val_acc.item()
+
         if is_main_process(self.rank):
-            print(f"val text loss: {val_text_loss.item():.4f} | val audio loss: {val_audio_loss.item():.4f} | val acc: {val_acc.item():.4f}")
+            print(f"val text loss: {val_text_loss_val:.4f} | val audio loss: {val_audio_loss_val:.4f} | val acc: {val_acc_val:.4f}")
+
+            # Save best checkpoint
+            total_val_loss = val_audio_loss_val + self.text_factor * val_text_loss_val
+            if self.args.save_best and total_val_loss < self.best_val_loss:
+                self.best_val_loss = total_val_loss
+                best_path = f"{self.args.save_dir}_best"
+                print(f"New best validation loss: {total_val_loss:.4f} - saving to {best_path}")
+                model_to_save = self.model.module if self.distributed else self.model
+                model_to_save.save_pretrained(best_path)
+                self.tokenizer.save_pretrained(best_path)
 
         self.model.train()
+        return val_audio_loss_val, val_text_loss_val, val_acc_val
 
     def save_checkpoint(self, step):
         if is_main_process(self.rank):
@@ -209,6 +249,16 @@ class Trainer:
             model_to_save.save_pretrained(save_path)
             self.tokenizer.save_pretrained(save_path)
 
+    def log_metrics(self, step, train_audio_loss, train_text_loss, train_acc,
+                    val_audio_loss, val_text_loss, val_acc, lr, grad_norm, tokens_per_sec):
+        if self.log_file and is_main_process(self.rank):
+            with open(self.log_file, 'a') as f:
+                val_audio = f"{val_audio_loss:.4f}" if val_audio_loss is not None else ""
+                val_text = f"{val_text_loss:.4f}" if val_text_loss is not None else ""
+                val_a = f"{val_acc:.4f}" if val_acc is not None else ""
+                f.write(f"{step},{train_audio_loss:.4f},{train_text_loss:.4f},{train_acc:.4f},"
+                        f"{val_audio},{val_text},{val_a},{lr:.2e},{grad_norm:.3f},{tokens_per_sec:.0f}\n")
+
     def train(self):
         torch.set_float32_matmul_precision('high')
 
@@ -217,8 +267,9 @@ class Trainer:
             start = time.time()
 
             # Validation
+            val_audio_loss, val_text_loss, val_acc = None, None, None
             if self.args.val_freq > 0 and (step % self.args.val_freq == 0 or step == self.max_steps - 1):
-                self.evaluate()
+                val_audio_loss, val_text_loss, val_acc = self.evaluate(step)
 
             # Get batch
             try:
@@ -256,11 +307,19 @@ class Trainer:
             dt = (time.time() - start) * 1000
             tokens_per_sec = (self.batch_size * self.seq_len * self.world_size) / (time.time() - start)
 
+            train_audio_loss = audio_loss.item()
+            train_text_loss = text_loss.item()
+            train_acc = acc.item()
+
             pbar.set_description(
-                f"loss: {audio_loss.item():.3f} | text: {text_loss.item():.3f} | "
-                f"acc: {acc.item():.4f} | lr: {lr:.2e} | norm: {norm:.3f} | "
+                f"loss: {train_audio_loss:.3f} | text: {train_text_loss:.3f} | "
+                f"acc: {train_acc:.4f} | lr: {lr:.2e} | norm: {norm:.3f} | "
                 f"{dt:.0f}ms | {tokens_per_sec:.0f} t/s"
             )
+
+            # Log to CSV
+            self.log_metrics(step, train_audio_loss, train_text_loss, train_acc,
+                           val_audio_loss, val_text_loss, val_acc, lr, norm, tokens_per_sec)
 
             # Save checkpoint
             if self.args.save_freq > 0 and (step + 1) % self.args.save_freq == 0:
