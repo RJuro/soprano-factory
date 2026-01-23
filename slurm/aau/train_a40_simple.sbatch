@@ -36,10 +36,12 @@ rm -rf ~/.cache/huggingface/hub/models--ekwek--Soprano-80M 2>/dev/null || true
 singularity exec --nv "$CONTAINER" bash -c '
 set -e
 
-# Force reinstall with specific versions
+# Force reinstall with compatible versions
+# transformers>=4.45 supports tokenizers>=0.20
 pip install --user --no-cache-dir --force-reinstall \
-    "tokenizers==0.20.3" \
-    "transformers==4.44.2" \
+    "numpy<2" \
+    "tokenizers>=0.20,<0.21" \
+    "transformers>=4.45,<4.50" \
     "huggingface_hub>=0.20" \
     einops
 
