@@ -64,15 +64,15 @@ def main():
 
     print(f"Pushing to {args.repo}...")
 
-    # Push model and tokenizer
-    model.push_to_hub(args.repo, private=args.private)
-    tokenizer.push_to_hub(args.repo, private=args.private)
+    # Push model and tokenizer (pass token explicitly to override env var)
+    model.push_to_hub(args.repo, private=args.private, token=args.token)
+    tokenizer.push_to_hub(args.repo, private=args.private, token=args.token)
 
     # Push decoder separately if it exists
     decoder_path = model_path / "decoder.pth"
     if decoder_path.exists():
         print("Uploading decoder.pth...")
-        api = HfApi()
+        api = HfApi(token=args.token)
         api.upload_file(
             path_or_fileobj=str(decoder_path),
             path_in_repo="decoder.pth",
