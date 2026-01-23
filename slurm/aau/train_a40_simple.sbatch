@@ -16,8 +16,8 @@
 
 cd $SLURM_SUBMIT_DIR
 
-# Shared PyTorch container on AAU
-CONTAINER="/home/container/pytorch/pytorch_25.09.sif"
+# Shared PyTorch container on AAU (older version for CUDA 12.0 driver compatibility)
+CONTAINER="/home/container/pytorch/pytorch_24.12.sif"
 
 # Configuration
 NUM_GPUS=4
