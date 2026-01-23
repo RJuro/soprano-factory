@@ -17,8 +17,8 @@ echo "Node: ${SLURM_NODELIST}"
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
 echo "============================================"
 
-# Use the container since pip/python not available on compute nodes
-CONTAINER="/home/container/pytorch/pytorch_24.09.sif"
+# Use newer container with compatible transformers/tokenizers
+CONTAINER="/home/container/pytorch/pytorch_25.03.sif"
 
 # Verify dataset
 if [ ! -f "coral_danish_dataset/train.json" ]; then
@@ -27,16 +27,22 @@ if [ ! -f "coral_danish_dataset/train.json" ]; then
 fi
 
 # Run distributed training on 4 GPUs inside container
-# Install to local dir since container is read-only and ~/.local has old versions
+# Clean old packages and install fresh to local dir
 echo "Starting training on 4 A40 GPUs..."
+rm -rf .pip_packages
 mkdir -p .pip_packages
 
 singularity exec --nv \
     --env "PYTHONNOUSERSITE=1" \
     --env "PYTHONPATH=$PWD/.pip_packages" \
     "$CONTAINER" bash -c "
+    # Install only what we need, explicitly exclude numpy
     pip install --quiet --no-cache-dir --target=.pip_packages \
-        --no-deps transformers 'tokenizers>=0.19.0' huggingface_hub einops safetensors regex filelock pyyaml requests packaging
+        'transformers>=4.40,<4.50' 'tokenizers>=0.19' huggingface_hub einops \
+        --no-deps --ignore-installed
+
+    # Check versions
+    python -c 'import transformers, tokenizers; print(f\"transformers={transformers.__version__}, tokenizers={tokenizers.__version__}\")'
 
     torchrun --nproc_per_node=4 --master_port=29500 \
         train_distributed.py \
