@@ -16,6 +16,9 @@
 
 cd $SLURM_SUBMIT_DIR
 
+# Add user local bin to PATH
+export PATH="$HOME/.local/bin:$PATH"
+
 # Configuration
 NUM_GPUS=4
 MAX_STEPS=2500
@@ -33,7 +36,7 @@ nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
 echo "--------------------------------------------"
 
 # Install deps (same as test_quick.sbatch)
-pip install --user torch torchaudio transformers "datasets<3.0" huggingface_hub tqdm soundfile einops numpy
+python3 -m pip install --user torch torchaudio transformers "datasets<3.0" huggingface_hub tqdm soundfile einops numpy
 
 # Verify dataset exists
 if [ ! -f "${INPUT_DIR}/train.json" ]; then
@@ -49,7 +52,7 @@ echo "Output: ${OUTPUT_DIR}"
 echo "--------------------------------------------"
 
 # Run distributed training
-torchrun \
+python3 -m torch.distributed.run \
     --nproc_per_node=${NUM_GPUS} \
     --master_port=${MASTER_PORT} \
     train_distributed.py \
