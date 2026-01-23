@@ -12,16 +12,23 @@ class FSQSTE(nn.Module):
         super().__init__()
         if levels:
             self.dim = len(levels)
-            self.levels = torch.tensor(levels, dtype=torch.int32).view(1, 1, self.dim)
-            self.half_levels = (self.levels - 1) * (1 - 1e-3) / 2
-            self.offset = 0.5 - 0.5 * (self.levels % 2)
-            self.shift = torch.tan(self.offset / self.half_levels)
+            # Register tensors as buffers so they move with the model to GPU/CPU
+            levels_tensor = torch.tensor(levels, dtype=torch.int32).view(1, 1, self.dim)
+            self.register_buffer('levels', levels_tensor)
+            self.register_buffer('half_levels', (levels_tensor - 1) * (1 - 1e-3) / 2)
+            offset = 0.5 - 0.5 * (levels_tensor % 2)
+            self.register_buffer('offset', offset)
+            self.register_buffer('shift', torch.tan(offset / self.half_levels))
         else:
-            self.levels = levels
+            self.levels = None
+            self.half_levels = None
+            self.offset = None
+            self.shift = None
 
-        self._basis = torch.cumprod(torch.tensor([1] + levels[:-1]),
-                                    dim=0,
-                                    dtype=torch.int32)
+        basis = torch.cumprod(torch.tensor([1] + levels[:-1]),
+                              dim=0,
+                              dtype=torch.int32)
+        self.register_buffer('_basis', basis)
 
     def _scale_and_shift(self, zhat_normalized):
         half_width = self.levels // 2

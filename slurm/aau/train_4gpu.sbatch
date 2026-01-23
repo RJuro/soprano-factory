@@ -45,38 +45,48 @@ echo "Effective batch size: $((BATCH_SIZE * NUM_GPUS))"
 echo "Output: ${OUTPUT_DIR}"
 echo "============================================"
 
-# Check container exists
-if [ ! -f "containers/pytorch.sif" ]; then
-    echo "ERROR: Container not found. Run first:"
-    echo "  sbatch slurm/aau/pull_container.sbatch"
+# Use pre-existing container from cluster
+CONTAINER_PATH="/home/container/pytorch/pytorch_24.09.sif"
+if [ ! -f "${CONTAINER_PATH}" ]; then
+    echo "ERROR: Container not found at ${CONTAINER_PATH}"
+    echo "Available containers:"
+    ls -la /home/container/pytorch/ 2>/dev/null || echo "  (directory not accessible)"
     exit 1
 fi
+echo "Using container: ${CONTAINER_PATH}"
 
 # Set Singularity environment - use node scratch for temp
 export SINGULARITY_TMPDIR="/raid/${USER}/tmp"
 export SINGULARITY_CACHEDIR="/raid/${USER}/cache"
 mkdir -p "${SINGULARITY_TMPDIR}" "${SINGULARITY_CACHEDIR}"
 
+# Install compatible dependencies
+echo "Installing compatible dependencies..."
+singularity exec --nv "${CONTAINER_PATH}" \
+    pip install --quiet --no-cache-dir \
+    "transformers>=4.40.0,<4.45.0" \
+    "huggingface_hub>=0.20.0" \
+    "datasets>=2.14.0" \
+    "soundfile>=0.12.0" \
+    "einops>=0.7.0"
+
 # Prepare dataset if needed
 if [ ! -f "coral_danish_dataset/train.json" ]; then
     echo "Preparing dataset..."
-    singularity exec --nv containers/pytorch.sif \
-        pip install --user datasets soundfile huggingface_hub
-
-    singularity exec --nv containers/pytorch.sif \
+    singularity exec --nv "${CONTAINER_PATH}" \
         python prepare_coral_dataset.py \
         --output-dir coral_danish_dataset \
         --max-samples "${MAX_SAMPLES}"
 
     echo "Generating audio tokens..."
-    singularity exec --nv containers/pytorch.sif \
+    singularity exec --nv "${CONTAINER_PATH}" \
         python generate_dataset.py \
         --input-dir coral_danish_dataset
 fi
 
 # Run distributed training
 echo "Starting distributed training on ${NUM_GPUS} GPUs..."
-singularity exec --nv containers/pytorch.sif \
+singularity exec --nv "${CONTAINER_PATH}" \
     torchrun --nproc_per_node=${NUM_GPUS} --master_port=29500 \
     train_distributed.py \
     --input-dir coral_danish_dataset \

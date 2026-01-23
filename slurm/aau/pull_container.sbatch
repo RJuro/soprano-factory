@@ -25,11 +25,13 @@ mkdir -p "${SINGULARITY_TMPDIR}" "${SINGULARITY_CACHEDIR}"
 echo "Pulling PyTorch container from NGC..."
 echo "This may take 20-30 minutes..."
 
-# Pull latest PyTorch NGC container
+# Pull PyTorch NGC container
 # See https://catalog.ngc.nvidia.com/orgs/nvidia/containers/pytorch for versions
-singularity pull --force containers/pytorch.sif docker://nvcr.io/nvidia/pytorch:24.01-py3
+# Using 24.09 for transformers 4.44.x compatibility
+CONTAINER_TAG="24.09-py3"
+singularity pull --force "containers/pytorch_${CONTAINER_TAG//-/_}.sif" "docker://nvcr.io/nvidia/pytorch:${CONTAINER_TAG}"
 
-echo "Container saved to: containers/pytorch.sif"
+echo "Container saved to: containers/pytorch_${CONTAINER_TAG//-/_}.sif"
 echo ""
 echo "Clean up cache..."
 rm -rf "${SINGULARITY_TMPDIR}" "${SINGULARITY_CACHEDIR}"
