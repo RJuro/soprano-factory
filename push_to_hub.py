@@ -22,6 +22,8 @@ def parse_args():
                         help="Path to fine-tuned model directory")
     parser.add_argument("--repo", "-r", type=str, required=True,
                         help="HuggingFace repo ID (e.g., username/soprano-danish)")
+    parser.add_argument("--token", "-t", type=str, default=os.environ.get("HF_TOKEN"),
+                        help="HuggingFace token (or set HF_TOKEN env var)")
     parser.add_argument("--private", action="store_true",
                         help="Make the repo private")
     parser.add_argument("--include-decoder", action="store_true",
@@ -33,7 +35,14 @@ def main():
     args = parse_args()
 
     from transformers import AutoModelForCausalLM, AutoTokenizer
-    from huggingface_hub import HfApi, hf_hub_download
+    from huggingface_hub import HfApi, hf_hub_download, login
+
+    # Login if token provided
+    if args.token:
+        print("Logging in to HuggingFace...")
+        login(token=args.token)
+    else:
+        print("Warning: No token provided. Set --token or HF_TOKEN env var")
 
     model_path = Path(args.model)
     if not model_path.exists():
