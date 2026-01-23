@@ -27,10 +27,16 @@ if [ ! -f "coral_danish_dataset/train.json" ]; then
 fi
 
 # Run distributed training on 4 GPUs inside container
-# PYTHONNOUSERSITE=1 prevents loading old packages from ~/.local
+# Install to local dir since container is read-only and ~/.local has old versions
 echo "Starting training on 4 A40 GPUs..."
-singularity exec --nv --env PYTHONNOUSERSITE=1 "$CONTAINER" bash -c "
-    pip install --quiet --no-cache-dir transformers 'tokenizers>=0.19.0' huggingface_hub einops
+mkdir -p .pip_packages
+
+singularity exec --nv \
+    --env "PYTHONNOUSERSITE=1" \
+    --env "PYTHONPATH=$PWD/.pip_packages" \
+    "$CONTAINER" bash -c "
+    pip install --quiet --no-cache-dir --target=.pip_packages \
+        transformers 'tokenizers>=0.19.0' huggingface_hub einops
 
     torchrun --nproc_per_node=4 --master_port=29500 \
         train_distributed.py \
