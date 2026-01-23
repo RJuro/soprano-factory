@@ -28,41 +28,45 @@ if [ ! -f "coral_danish_dataset/train.json" ]; then
 fi
 
 # Run distributed training on 4 GPUs inside container
-# Clean old packages and install fresh to local dir
 echo "Starting training on 4 A40 GPUs..."
-rm -rf .pip_packages
-mkdir -p .pip_packages
+
+# Clean any old user-installed packages that might conflict
+rm -rf ~/.local/lib/python*/site-packages/tokenizers* 2>/dev/null
+rm -rf ~/.local/lib/python*/site-packages/transformers* 2>/dev/null
 
 singularity exec --nv \
     --env "PYTHONNOUSERSITE=1" \
-    --env "PYTHONPATH=$PWD/.pip_packages" \
-    "$CONTAINER" bash -c "
-    # Install packages with numpy<2 pinned to avoid numpy 2.x / PyTorch incompatibility
-    # See: https://github.com/huggingface/transformers/blob/main/docker/transformers-pytorch-deepspeed-latest-gpu/Dockerfile
-    pip install --quiet --no-cache-dir --target=.pip_packages \
-        'numpy<2' \
-        'transformers>=4.40,<4.45' \
-        'tokenizers>=0.19' \
+    "$CONTAINER" bash -c '
+    set -e
+
+    # Install to user directory with upgrade to override any old versions
+    pip install --user --quiet --no-cache-dir --upgrade \
+        "numpy<2" \
+        "transformers>=4.40,<4.45" \
+        "tokenizers>=0.19" \
         huggingface_hub \
         einops
 
-    # Verify versions
-    python -c '
+    # Verify versions and paths
+    echo "=== Package verification ==="
+    python -c "
+import sys
 import numpy, torch, transformers, tokenizers
-print(f\"numpy={numpy.__version__}\")
+print(f\"numpy={numpy.__version__} from {numpy.__file__}\")
 print(f\"torch={torch.__version__}\")
-print(f\"transformers={transformers.__version__}\")
-print(f\"tokenizers={tokenizers.__version__}\")
+print(f\"transformers={transformers.__version__} from {transformers.__file__}\")
+print(f\"tokenizers={tokenizers.__version__} from {tokenizers.__file__}\")
 print(f\"CUDA available: {torch.cuda.is_available()}\")
-'
+"
+    echo "==========================="
 
     torchrun --nproc_per_node=4 --master_port=29500 \
         train_distributed.py \
         --input-dir coral_danish_dataset \
-        --save-dir outputs/soprano-danish-a40-\$(date +%Y%m%d_%H%M) \
+        --save-dir outputs/soprano-danish-a40-$(date +%Y%m%d_%H%M) \
         --max-steps 2500 \
         --batch-size 48 \
         --save-freq 500
-"
+'
 
 echo "Done!"
