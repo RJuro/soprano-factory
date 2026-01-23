@@ -14,7 +14,7 @@
 # AAU AI Cloud (CLAAUDIA)
 # ============================================
 # Uses pre-existing PyTorch containers from cluster.
-# Available containers: /home/container/pytorch/
+# Assumes dataset is already prepared in coral_danish_dataset/
 #
 # Usage: sbatch slurm/aau/train_a40_simple.sbatch
 # ============================================
@@ -25,9 +25,9 @@ cd "$WORK_DIR"
 
 # Configuration
 NUM_GPUS=4
-MAX_SAMPLES=18863
 MAX_STEPS=2500
 BATCH_SIZE=48
+INPUT_DIR="coral_danish_dataset"
 OUTPUT_DIR="outputs/soprano-danish-a40-$(date +%Y%m%d_%H%M)"
 
 mkdir -p logs outputs
@@ -45,7 +45,6 @@ nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
 echo "============================================"
 
 # Use pre-existing container from cluster
-# pytorch_24.09.sif works well with transformers 4.44.x
 CONTAINER_PATH="/home/container/pytorch/pytorch_24.09.sif"
 
 if [ ! -f "${CONTAINER_PATH}" ]; then
@@ -57,77 +56,50 @@ fi
 
 echo "Using container: ${CONTAINER_PATH}"
 
+# Verify dataset exists
+if [ ! -f "${INPUT_DIR}/train.json" ]; then
+    echo "ERROR: Dataset not found at ${INPUT_DIR}/train.json"
+    echo "Please prepare the dataset first."
+    exit 1
+fi
+
 # Set Singularity environment
 export SINGULARITY_TMPDIR="/raid/${USER}/singularity_tmp"
 export SINGULARITY_CACHEDIR="/raid/${USER}/singularity_cache"
 mkdir -p "${SINGULARITY_TMPDIR}" "${SINGULARITY_CACHEDIR}"
 
-# Define a script to run inside the container
-SETUP_AND_RUN=$(cat << 'ENDSCRIPT'
-#!/bin/bash
-set -e
-
-echo "Installing compatible dependencies..."
-# Pin transformers to version compatible with container's PyTorch
-# transformers 4.44.x works with PyTorch 2.4.x (in 24.09 container)
-pip install --quiet --no-cache-dir \
-    "transformers>=4.40.0,<4.45.0" \
-    "huggingface_hub>=0.20.0" \
-    "datasets>=2.14.0" \
-    "soundfile>=0.12.0" \
-    "einops>=0.7.0" \
-    "tqdm>=4.66.0"
-
-echo "Transformers version: $(python -c 'import transformers; print(transformers.__version__)')"
-echo "PyTorch version: $(python -c 'import torch; print(torch.__version__)')"
-
-# Check if dataset exists
-if [ ! -f "${INPUT_DIR}/train.json" ]; then
-    echo "Preparing Coral Danish dataset..."
-    python prepare_coral_dataset.py \
-        --output-dir "${INPUT_DIR}" \
-        --max-samples "${MAX_SAMPLES}"
-
-    echo "Generating audio tokens..."
-    python generate_dataset.py \
-        --input-dir "${INPUT_DIR}"
-fi
-
-echo "Starting distributed training on ${NUM_GPUS} GPUs..."
-torchrun \
-    --nproc_per_node=${NUM_GPUS} \
-    --master_port=29500 \
-    train_distributed.py \
-    --input-dir "${INPUT_DIR}" \
-    --save-dir "${OUTPUT_DIR}" \
-    --max-steps "${MAX_STEPS}" \
-    --batch-size "${BATCH_SIZE}" \
-    --save-freq 500
-
-ENDSCRIPT
-)
-
-# Export variables for the script
-export INPUT_DIR="coral_danish_dataset"
-export OUTPUT_DIR
-export MAX_SAMPLES
-export MAX_STEPS
-export BATCH_SIZE
-export NUM_GPUS
-
-# Run the script inside the container
+# Run training inside container
+# PYTHONNOUSERSITE=1 prevents loading packages from ~/.local
 echo "Running training inside container..."
 singularity exec --nv \
     --bind "${WORK_DIR}:${WORK_DIR}" \
     --pwd "${WORK_DIR}" \
-    --env "INPUT_DIR=${INPUT_DIR}" \
-    --env "OUTPUT_DIR=${OUTPUT_DIR}" \
-    --env "MAX_SAMPLES=${MAX_SAMPLES}" \
-    --env "MAX_STEPS=${MAX_STEPS}" \
-    --env "BATCH_SIZE=${BATCH_SIZE}" \
-    --env "NUM_GPUS=${NUM_GPUS}" \
+    --env "PYTHONNOUSERSITE=1" \
     "${CONTAINER_PATH}" \
-    bash -c "${SETUP_AND_RUN}"
+    bash -c "
+set -e
+
+echo 'Installing compatible dependencies...'
+pip install --quiet --no-cache-dir \
+    'transformers>=4.40.0,<4.45.0' \
+    'tokenizers>=0.19.0' \
+    'huggingface_hub>=0.20.0' \
+    'einops>=0.7.0'
+
+echo 'Versions:'
+python -c \"import transformers, tokenizers, torch; print(f'transformers={transformers.__version__}, tokenizers={tokenizers.__version__}, torch={torch.__version__}')\"
+
+echo 'Starting distributed training on ${NUM_GPUS} GPUs...'
+torchrun \
+    --nproc_per_node=${NUM_GPUS} \
+    --master_port=29500 \
+    train_distributed.py \
+    --input-dir ${INPUT_DIR} \
+    --save-dir ${OUTPUT_DIR} \
+    --max-steps ${MAX_STEPS} \
+    --batch-size ${BATCH_SIZE} \
+    --save-freq 500
+"
 
 echo "============================================"
 echo "Training complete!"
