@@ -90,7 +90,16 @@ def main():
 
     # Check if it's a local path or HuggingFace ID
     if os.path.isdir(args.model):
-        # Local fine-tuned model
+        # Local fine-tuned model - need to copy decoder from base model
+        decoder_path = os.path.join(args.model, "decoder.pth")
+        if not os.path.exists(decoder_path):
+            print("Decoder not found in fine-tuned model, downloading from base model...")
+            from huggingface_hub import hf_hub_download
+            import shutil
+            base_decoder = hf_hub_download("ekwek/Soprano-80M", "decoder.pth")
+            shutil.copy(base_decoder, decoder_path)
+            print(f"Copied decoder to {decoder_path}")
+
         model = SopranoTTS(
             model_path=args.model,
             device=args.device,
