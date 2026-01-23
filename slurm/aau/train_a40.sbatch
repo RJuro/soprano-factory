@@ -1,14 +1,13 @@
 #!/bin/bash
 #SBATCH --job-name=soprano-a40
-#SBATCH --output=logs/soprano_a40_%j.out
-#SBATCH --error=logs/soprano_a40_%j.err
+#SBATCH --output=soprano_a40_%j.out
+#SBATCH --error=soprano_a40_%j.err
 #SBATCH --partition=batch
 #SBATCH --qos=short
 #SBATCH --mem=128G
 #SBATCH --cpus-per-task=32
-#SBATCH --gres=gpu:4
+#SBATCH --gres=gpu:a40:4
 #SBATCH --time=03:00:00
-#SBATCH --nodelist=i256-a40-01,i256-a40-02
 
 # ============================================
 # Soprano Danish TTS - A40 Training
