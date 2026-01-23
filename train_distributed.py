@@ -7,6 +7,7 @@ Usage:
     Multi-GPU:   torchrun --nproc_per_node=4 train_distributed.py --save-dir outputs/model
 """
 import argparse
+from contextlib import nullcontext
 import os
 import pathlib
 import random
@@ -30,9 +31,12 @@ def get_args():
     parser.add_argument("--save-dir", required=True, type=pathlib.Path)
     parser.add_argument("--max-steps", default=10000, type=int)
     parser.add_argument("--batch-size", default=48, type=int, help="Batch size per GPU")
+    parser.add_argument("--grad-accum", default=1, type=int, help="Gradient accumulation steps")
     parser.add_argument("--lr", default=5e-4, type=float)
     parser.add_argument("--val-freq", default=250, type=int)
     parser.add_argument("--save-freq", default=1000, type=int)
+    parser.add_argument("--gradient-checkpointing", action="store_true", help="Enable gradient checkpointing")
+    parser.add_argument("--compile", action="store_true", help="Use torch.compile for faster training")
     return parser.parse_args()
 
 
@@ -68,6 +72,7 @@ class Trainer:
 
         # Hyperparameters
         self.batch_size = args.batch_size
+        self.grad_accum = args.grad_accum
         self.seq_len = 1024
         self.max_lr = args.lr
         self.min_lr = 0.1 * self.max_lr
@@ -83,13 +88,42 @@ class Trainer:
         self.cooldown_steps = int(self.max_steps * self.cooldown_ratio)
 
         # Load tokenizer and model
-        # Use eager attention to avoid SDPA enable_gqa which requires PyTorch 2.6+
+        # Try flash_attention_2 first (fastest), then sdpa (PyTorch 2.6+), then eager
         self.tokenizer = AutoTokenizer.from_pretrained('ekwek/Soprano-1.1-80M')
-        self.model = AutoModelForCausalLM.from_pretrained(
-            'ekwek/Soprano-1.1-80M',
-            attn_implementation="eager"
-        )
-        self.model.to(torch.bfloat16).to(self.device)
+
+        attn_impl = None
+        for impl in ["flash_attention_2", "sdpa", "eager"]:
+            try:
+                self.model = AutoModelForCausalLM.from_pretrained(
+                    'ekwek/Soprano-1.1-80M',
+                    attn_implementation=impl,
+                    torch_dtype=torch.bfloat16,
+                )
+                attn_impl = impl
+                if is_main_process(rank):
+                    print(f"Using attention implementation: {impl}")
+                break
+            except Exception as e:
+                if is_main_process(rank):
+                    print(f"Failed to load with {impl}: {e}")
+                continue
+
+        if attn_impl is None:
+            raise RuntimeError("Could not load model with any attention implementation")
+
+        # Enable gradient checkpointing if requested (saves memory, slower)
+        if args.gradient_checkpointing:
+            self.model.gradient_checkpointing_enable()
+            if is_main_process(rank):
+                print("Gradient checkpointing enabled")
+
+        self.model.to(self.device)
+
+        # Optionally compile the model (PyTorch 2.0+)
+        if args.compile:
+            if is_main_process(rank):
+                print("Compiling model with torch.compile...")
+            self.model = torch.compile(self.model)
 
         if distributed:
             self.model = DDP(self.model, device_ids=[local_rank])
@@ -110,7 +144,8 @@ class Trainer:
             print(f"Initialized training:")
             print(f"  World size: {world_size}")
             print(f"  Batch size per GPU: {self.batch_size}")
-            print(f"  Effective batch size: {self.batch_size * world_size}")
+            print(f"  Gradient accumulation: {self.grad_accum}")
+            print(f"  Effective batch size: {self.batch_size * world_size * self.grad_accum}")
             print(f"  Max steps: {self.max_steps}")
 
     def _setup_dataloaders(self):
@@ -224,25 +259,37 @@ class Trainer:
             if self.args.val_freq > 0 and (step % self.args.val_freq == 0 or step == self.max_steps - 1):
                 self.evaluate()
 
-            # Get batch
-            try:
-                x, y = next(self.train_iter)
-            except StopIteration:
-                if self.distributed:
-                    self.train_dataloader.sampler.set_epoch(step)
-                self.train_iter = iter(self.train_dataloader)
-                x, y = next(self.train_iter)
-
-            x, y = x.to(self.device), y.to(self.device)
-
-            # Forward pass
+            # Gradient accumulation loop
             self.optimizer.zero_grad()
-            with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
-                logits = self.model(x).logits
-                audio_loss, text_loss, acc = self.compute_loss(logits, y)
+            accum_audio_loss = 0.0
+            accum_text_loss = 0.0
+            accum_acc = 0.0
 
-            total_loss = audio_loss + self.text_factor * text_loss
-            total_loss.backward()
+            for micro_step in range(self.grad_accum):
+                # Get batch
+                try:
+                    x, y = next(self.train_iter)
+                except StopIteration:
+                    if self.distributed:
+                        self.train_dataloader.sampler.set_epoch(step)
+                    self.train_iter = iter(self.train_dataloader)
+                    x, y = next(self.train_iter)
+
+                x, y = x.to(self.device), y.to(self.device)
+
+                # Forward pass with gradient sync only on last micro-step
+                sync_context = self.model.no_sync if (self.distributed and micro_step < self.grad_accum - 1) else nullcontext
+                with sync_context():
+                    with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+                        logits = self.model(x).logits
+                        audio_loss, text_loss, acc = self.compute_loss(logits, y)
+
+                    total_loss = (audio_loss + self.text_factor * text_loss) / self.grad_accum
+                    total_loss.backward()
+
+                accum_audio_loss += audio_loss.item() / self.grad_accum
+                accum_text_loss += text_loss.item() / self.grad_accum
+                accum_acc += acc.item() / self.grad_accum
 
             norm = torch.nn.utils.clip_grad_norm_(
                 self.model.module.parameters() if self.distributed else self.model.parameters(),
@@ -258,11 +305,11 @@ class Trainer:
             # Logging
             torch.cuda.synchronize()
             dt = (time.time() - start) * 1000
-            tokens_per_sec = (self.batch_size * self.seq_len * self.world_size) / (time.time() - start)
+            tokens_per_sec = (self.batch_size * self.grad_accum * self.seq_len * self.world_size) / (time.time() - start)
 
             pbar.set_description(
-                f"loss: {audio_loss.item():.3f} | text: {text_loss.item():.3f} | "
-                f"acc: {acc.item():.4f} | lr: {lr:.2e} | norm: {norm:.3f} | "
+                f"loss: {accum_audio_loss:.3f} | text: {accum_text_loss:.3f} | "
+                f"acc: {accum_acc:.4f} | lr: {lr:.2e} | norm: {norm:.3f} | "
                 f"{dt:.0f}ms | {tokens_per_sec:.0f} t/s"
             )
 
