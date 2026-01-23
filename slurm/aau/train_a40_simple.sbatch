@@ -5,9 +5,9 @@
 #SBATCH --partition=batch
 #SBATCH --qos=short
 #SBATCH --mem=128G
-#SBATCH --cpus-per-task=32
-#SBATCH --gres=gpu:4
-#SBATCH --time=03:00:00
+#SBATCH --cpus-per-task=24
+#SBATCH --gres=gpu:a40:4
+#SBATCH --time=02:59:00
 
 # ============================================
 # Soprano Danish TTS - 4x A40 GPU Training
