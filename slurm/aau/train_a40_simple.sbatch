@@ -16,8 +16,8 @@
 
 cd $SLURM_SUBMIT_DIR
 
-# Shared PyTorch container on AAU (older version for CUDA 12.0 driver compatibility)
 CONTAINER="/home/container/pytorch/pytorch_24.12.sif"
+PKGDIR="${SLURM_SUBMIT_DIR}/.venv_packages"
 
 # Configuration
 NUM_GPUS=4
@@ -26,14 +26,6 @@ BATCH_SIZE=48
 MASTER_PORT=$((29500 + RANDOM % 1000))
 OUTPUT_DIR="outputs/soprano-danish-a40-$(date +%Y%m%d_%H%M)"
 INPUT_DIR="coral_danish_dataset"
-
-# IMPORTANT: Ignore user's ~/.local packages to avoid version conflicts
-export PYTHONNOUSERSITE=1
-
-# Use project-local package directory and fake HOME to isolate from user packages
-export PIP_TARGET="${SLURM_SUBMIT_DIR}/.packages"
-export PYTHONPATH="${PIP_TARGET}:${PYTHONPATH}"
-mkdir -p "${PIP_TARGET}" "${SLURM_SUBMIT_DIR}/.fakehome"
 
 echo "============================================"
 echo "Soprano TTS Training - A40 x${NUM_GPUS}"
@@ -44,27 +36,29 @@ nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
 echo "Container: ${CONTAINER}"
 echo "--------------------------------------------"
 
-# Verify dataset exists
+# Verify dataset
 if [ ! -f "${INPUT_DIR}/train.json" ]; then
     echo "ERROR: Dataset not found at ${INPUT_DIR}/train.json"
     exit 1
 fi
 
-# Singularity setup
+# Clean install - remove old packages to avoid conflicts
+rm -rf "${PKGDIR}"
+mkdir -p "${PKGDIR}"
+
+# Singularity tmp dirs
 export SINGULARITY_TMPDIR="/raid/${USER}/tmp"
 export SINGULARITY_CACHEDIR="/raid/${USER}/cache"
 mkdir -p "${SINGULARITY_TMPDIR}" "${SINGULARITY_CACHEDIR}"
 
-# Install deps to project-local directory (container has torch, torchaudio, numpy)
-# Use fake HOME to avoid ~/.local pollution, pin numpy to container-compatible version
-echo "Installing dependencies to ${PIP_TARGET}..."
+# Install ONLY missing packages (container has torch, numpy, etc)
+# Do NOT install numpy - use container's version
+echo "Installing dependencies..."
 singularity exec --nv \
     --env PYTHONNOUSERSITE=1 \
-    --env HOME="${SLURM_SUBMIT_DIR}/.fakehome" \
     "${CONTAINER}" \
-    pip install --target="${PIP_TARGET}" --no-cache-dir -q \
-        "numpy<2" "transformers==4.40.2" "datasets<3.0" "tokenizers<0.20" \
-        huggingface_hub tqdm soundfile einops
+    pip install --target="${PKGDIR}" --no-cache-dir -q \
+        transformers datasets tokenizers huggingface_hub tqdm soundfile einops
 
 echo ""
 echo "Starting distributed training..."
@@ -73,11 +67,10 @@ echo "Steps: ${MAX_STEPS}"
 echo "Output: ${OUTPUT_DIR}"
 echo "--------------------------------------------"
 
-# Run distributed training
+# PYTHONPATH: container packages first, our additions last (append, not prepend)
 singularity exec --nv \
     --env PYTHONNOUSERSITE=1 \
-    --env HOME="${SLURM_SUBMIT_DIR}/.fakehome" \
-    --env PYTHONPATH="${PIP_TARGET}" \
+    --env "PYTHONPATH=/usr/local/lib/python3.12/dist-packages:${PKGDIR}" \
     "${CONTAINER}" \
     torchrun \
         --nproc_per_node=${NUM_GPUS} \
