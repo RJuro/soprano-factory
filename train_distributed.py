@@ -83,8 +83,12 @@ class Trainer:
         self.cooldown_steps = int(self.max_steps * self.cooldown_ratio)
 
         # Load tokenizer and model
+        # Use eager attention to avoid SDPA enable_gqa which requires PyTorch 2.6+
         self.tokenizer = AutoTokenizer.from_pretrained('ekwek/Soprano-80M')
-        self.model = AutoModelForCausalLM.from_pretrained('ekwek/Soprano-80M')
+        self.model = AutoModelForCausalLM.from_pretrained(
+            'ekwek/Soprano-80M',
+            attn_implementation="eager"
+        )
         self.model.to(torch.bfloat16).to(self.device)
 
         if distributed:
