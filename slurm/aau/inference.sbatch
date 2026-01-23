@@ -52,7 +52,7 @@ pip install --user --no-cache-dir --force-reinstall -q \
     "tokenizers>=0.20" \
     "transformers>=4.51" \
     "huggingface_hub>=0.20" \
-    pydub soundfile einops 2>/dev/null || true
+    soprano-tts pydub soundfile einops 2>/dev/null || true
 
 python inference.py \
     --model "'"${MODEL_PATH}"'" \

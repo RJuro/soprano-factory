@@ -8,7 +8,7 @@ Usage:
     python inference.py --model outputs/soprano-danish_step500 --text "Rød grød med fløde." -o output.mp3
 
 Requirements:
-    pip install torch transformers huggingface_hub soundfile pydub
+    pip install torch transformers huggingface_hub soundfile pydub vocos
 """
 
 import argparse
@@ -65,79 +65,107 @@ def main():
     model.to(device)
     model.eval()
 
-    # Ensure decoder is present
-    decoder_path = os.path.join(args.model, "decoder.pth") if os.path.isdir(args.model) else None
-    if decoder_path and not os.path.exists(decoder_path):
-        print("Downloading decoder from ekwek/Soprano-1.1-80M...")
-        base_decoder = hf_hub_download("ekwek/Soprano-1.1-80M", "decoder.pth")
-        shutil.copy(base_decoder, decoder_path)
-        print(f"Copied decoder to {decoder_path}")
+    # Try using soprano-tts with model replacement (recommended approach)
+    print("Attempting to use soprano-tts with fine-tuned model...")
+    try:
+        from soprano import SopranoTTS
 
-    # Load decoder
-    if decoder_path and os.path.exists(decoder_path):
-        dec_path = decoder_path
-    else:
-        dec_path = hf_hub_download("ekwek/Soprano-1.1-80M", "decoder.pth")
+        # Initialize soprano with base model first
+        tts = SopranoTTS(device=device)
 
-    print("Loading decoder...")
-    from soprano_decoder import load_decoder
-    decoder = load_decoder(dec_path, device)
+        # Replace BOTH model and tokenizer with fine-tuned versions
+        tts.pipeline.model = model
+        tts.pipeline.tokenizer = tokenizer
 
-    # Prepare prompt
-    prompt = f"[STOP][TEXT]{args.text}[START]"
-    inputs = tokenizer(prompt, return_tensors="pt").to(device)
-
-    # Get STOP token
-    stop_token_id = tokenizer.encode('[STOP]')[0]
-
-    print(f"Generating audio for: {args.text}")
-
-    # Generate audio tokens
-    with torch.no_grad():
-        outputs = model.generate(
-            **inputs,
-            max_new_tokens=args.max_tokens,
-            do_sample=True,
+        print(f"Generating audio for: {args.text}")
+        audio = tts.infer(
+            args.text,
             temperature=args.temperature,
             top_p=args.top_p,
-            repetition_penalty=1.2,
-            eos_token_id=stop_token_id,
-            pad_token_id=tokenizer.pad_token_id or 0,
         )
+        use_soprano = True
 
-    # Extract audio tokens (IDs 3-8003)
-    generated_ids = outputs[0].tolist()
-    start_token_id = tokenizer.encode('[START]')[0]
-    try:
-        start_idx = generated_ids.index(start_token_id) + 1
-    except ValueError:
-        start_idx = inputs.input_ids.shape[1]
+    except Exception as e:
+        print(f"soprano-tts failed: {e}")
+        print("Falling back to manual generation...")
+        use_soprano = False
 
-    audio_token_ids = [t for t in generated_ids[start_idx:] if 3 <= t <= 8003]
-    print(f"Generated {len(audio_token_ids)} audio tokens")
+        # Manual fallback: generate tokens and use soprano decoder
+        # Prepare prompt
+        prompt = f"[STOP][TEXT]{args.text}[START]"
+        inputs = tokenizer(prompt, return_tensors="pt").to(device)
 
-    if len(audio_token_ids) < 10:
-        print("Warning: Very few audio tokens generated.")
-        sys.exit(1)
+        # Get STOP token
+        stop_token_id = tokenizer.encode('[STOP]')[0]
 
-    # Get hidden states for decoder
-    audio_input = torch.tensor([audio_token_ids], device=device)
-    with torch.no_grad():
-        out = model(audio_input, output_hidden_states=True)
-        hidden_states = out.hidden_states[-1].float()
+        print(f"Generating audio for: {args.text}")
 
-    # Decode to audio
-    with torch.no_grad():
-        audio = decoder(hidden_states)
+        # Generate audio tokens
+        with torch.no_grad():
+            outputs = model.generate(
+                **inputs,
+                max_new_tokens=args.max_tokens,
+                do_sample=True,
+                temperature=args.temperature,
+                top_p=args.top_p,
+                repetition_penalty=1.2,
+                eos_token_id=stop_token_id,
+                pad_token_id=tokenizer.pad_token_id or 0,
+            )
+
+        # Extract audio tokens (IDs 3-8003)
+        generated_ids = outputs[0].tolist()
+        start_token_id = tokenizer.encode('[START]')[0]
+        try:
+            start_idx = generated_ids.index(start_token_id) + 1
+        except ValueError:
+            start_idx = inputs.input_ids.shape[1]
+
+        audio_token_ids = [t for t in generated_ids[start_idx:] if 3 <= t <= 8003]
+        print(f"Generated {len(audio_token_ids)} audio tokens")
+
+        if len(audio_token_ids) < 10:
+            print("Warning: Very few audio tokens generated.")
+            sys.exit(1)
+
+        # Use soprano's decoder directly
+        try:
+            from soprano import SopranoTTS
+            base_tts = SopranoTTS(device=device)
+            decoder = base_tts.pipeline.decoder
+
+            # Get hidden states for decoder from fine-tuned model
+            audio_input = torch.tensor([audio_token_ids], device=device)
+            with torch.no_grad():
+                out = model(audio_input, output_hidden_states=True)
+                hidden_states = out.hidden_states[-1].float()
+
+            # Decode to audio
+            with torch.no_grad():
+                audio = decoder(hidden_states)
+            audio = audio.cpu().numpy().squeeze()
+        except Exception as e2:
+            print(f"Decoder failed: {e2}")
+            sys.exit(1)
 
     # Save audio
-    audio = audio.cpu().numpy().squeeze()
+    if use_soprano:
+        # Audio from soprano is already numpy array
+        if hasattr(audio, 'cpu'):
+            audio = audio.cpu().numpy().squeeze()
+    else:
+        if hasattr(audio, 'cpu'):
+            audio = audio.cpu().numpy().squeeze()
+
+    # Normalize
     if np.max(np.abs(audio)) > 0:
         audio = audio / np.max(np.abs(audio)) * 0.95
 
     import soundfile as sf
+    # Soprano outputs at 32kHz
+    sample_rate = 32000
     wav_path = args.output.replace('.mp3', '.wav') if args.output.endswith('.mp3') else args.output
-    sf.write(wav_path, audio, 32000)
+    sf.write(wav_path, audio, sample_rate)
     print(f"Saved: {wav_path}")
 
     # Convert to MP3 if requested
