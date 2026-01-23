@@ -11,13 +11,12 @@
 
 # ============================================
 # Soprano Danish TTS - A40 4-GPU Training
-# AAU AI Cloud (same approach as test_quick)
+# AAU AI Cloud - Container-based
+# ============================================
+# First run: sbatch slurm/aau/pull_container.sbatch
 # ============================================
 
 cd $SLURM_SUBMIT_DIR
-
-# Add user local bin to PATH
-export PATH="$HOME/.local/bin:$PATH"
 
 # Configuration
 NUM_GPUS=4
@@ -35,14 +34,28 @@ echo "Node: ${SLURM_NODELIST}"
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
 echo "--------------------------------------------"
 
-# Install deps (same as test_quick.sbatch)
-python3 -m pip install --user torch torchaudio transformers "datasets<3.0" huggingface_hub tqdm soundfile einops numpy
+# Check container
+if [ ! -f "containers/pytorch.sif" ]; then
+    echo "ERROR: Container not found. Run first:"
+    echo "  sbatch slurm/aau/pull_container.sbatch"
+    exit 1
+fi
 
 # Verify dataset exists
 if [ ! -f "${INPUT_DIR}/train.json" ]; then
     echo "ERROR: Dataset not found at ${INPUT_DIR}/train.json"
     exit 1
 fi
+
+# Singularity setup
+export SINGULARITY_TMPDIR="/raid/${USER}/tmp"
+export SINGULARITY_CACHEDIR="/raid/${USER}/cache"
+mkdir -p "${SINGULARITY_TMPDIR}" "${SINGULARITY_CACHEDIR}"
+
+# Install deps in container
+echo "Installing dependencies..."
+singularity exec --nv containers/pytorch.sif \
+    pip install --user -q transformers "datasets<3.0" huggingface_hub tqdm soundfile einops
 
 echo ""
 echo "Starting distributed training..."
@@ -52,15 +65,16 @@ echo "Output: ${OUTPUT_DIR}"
 echo "--------------------------------------------"
 
 # Run distributed training
-python3 -m torch.distributed.run \
-    --nproc_per_node=${NUM_GPUS} \
-    --master_port=${MASTER_PORT} \
-    train_distributed.py \
-    --input-dir "${INPUT_DIR}" \
-    --save-dir "${OUTPUT_DIR}" \
-    --max-steps "${MAX_STEPS}" \
-    --batch-size "${BATCH_SIZE}" \
-    --save-freq 500
+singularity exec --nv containers/pytorch.sif \
+    torchrun \
+        --nproc_per_node=${NUM_GPUS} \
+        --master_port=${MASTER_PORT} \
+        train_distributed.py \
+        --input-dir "${INPUT_DIR}" \
+        --save-dir "${OUTPUT_DIR}" \
+        --max-steps "${MAX_STEPS}" \
+        --batch-size "${BATCH_SIZE}" \
+        --save-freq 500
 
 echo ""
 echo "Done! Model saved to ${OUTPUT_DIR}/"
