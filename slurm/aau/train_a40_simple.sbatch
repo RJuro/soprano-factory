@@ -36,7 +36,7 @@ singularity exec --nv \
     --env "PYTHONPATH=$PWD/.pip_packages" \
     "$CONTAINER" bash -c "
     pip install --quiet --no-cache-dir --target=.pip_packages \
-        transformers 'tokenizers>=0.19.0' huggingface_hub einops
+        --no-deps transformers 'tokenizers>=0.19.0' huggingface_hub einops safetensors regex filelock pyyaml requests packaging
 
     torchrun --nproc_per_node=4 --master_port=29500 \
         train_distributed.py \
