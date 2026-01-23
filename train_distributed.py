@@ -84,9 +84,9 @@ class Trainer:
 
         # Load tokenizer and model
         # Use eager attention to avoid SDPA enable_gqa which requires PyTorch 2.6+
-        self.tokenizer = AutoTokenizer.from_pretrained('ekwek/Soprano-80M')
+        self.tokenizer = AutoTokenizer.from_pretrained('ekwek/Soprano-1.1-80M')
         self.model = AutoModelForCausalLM.from_pretrained(
-            'ekwek/Soprano-80M',
+            'ekwek/Soprano-1.1-80M',
             attn_implementation="eager"
         )
         self.model.to(torch.bfloat16).to(self.device)
