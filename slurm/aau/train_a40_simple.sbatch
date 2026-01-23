@@ -37,11 +37,11 @@ singularity exec --nv "$CONTAINER" bash -c '
 set -e
 
 # Force reinstall with compatible versions
-# transformers>=4.45 supports tokenizers>=0.20
+# Need transformers>=4.51 for qwen3 support, tokenizers>=0.20 for new format
 pip install --user --no-cache-dir --force-reinstall \
     "numpy<2" \
-    "tokenizers>=0.20,<0.21" \
-    "transformers>=4.45,<4.50" \
+    "tokenizers>=0.20" \
+    "transformers>=4.51" \
     "huggingface_hub>=0.20" \
     einops
 
