@@ -10,8 +10,8 @@
 #SBATCH --time=03:00:00
 
 # ============================================
-# Soprano Danish TTS - A40 Training (Simple)
-# AAU AI Cloud - No container needed
+# Soprano Danish TTS - A40 Training
+# AAU AI Cloud - Uses venv (no container)
 # ============================================
 
 set -e
@@ -27,7 +27,7 @@ OUTPUT_DIR="outputs/soprano-danish-a40-$(date +%Y%m%d_%H%M)"
 INPUT_DIR="coral_danish_dataset"
 
 echo "============================================"
-echo "Soprano TTS Training - A40 (Simple)"
+echo "Soprano TTS Training - A40"
 echo "============================================"
 echo "Job ID: ${SLURM_JOB_ID}"
 echo "Node: ${SLURM_NODELIST}"
@@ -40,13 +40,17 @@ if [ ! -f "${INPUT_DIR}/train.json" ]; then
     exit 1
 fi
 
-# Install dependencies (user-level, no sudo needed)
-echo "Installing Python dependencies..."
-pip install --user -q torch torchaudio transformers datasets huggingface_hub tqdm soundfile einops
+# Setup venv if not exists
+if [ ! -d "venv" ]; then
+    echo "Creating virtual environment..."
+    python3 -m venv venv
+fi
 
-# Ensure user packages are in path
-export PATH="$HOME/.local/bin:$PATH"
-export PYTHONPATH="$HOME/.local/lib/python3.12/site-packages:$PYTHONPATH"
+source venv/bin/activate
+
+# Install dependencies
+echo "Checking dependencies..."
+pip install -q torch torchaudio transformers datasets huggingface_hub tqdm soundfile einops
 
 echo ""
 echo "Starting training on ${NUM_GPUS} GPUs..."
