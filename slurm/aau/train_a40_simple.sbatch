@@ -17,8 +17,9 @@ echo "Node: ${SLURM_NODELIST}"
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
 echo "============================================"
 
-# Use newer container with compatible transformers/tokenizers
-CONTAINER="/home/container/pytorch/pytorch_25.03.sif"
+# Use container version matching HuggingFace's official Dockerfile (24.08/24.09)
+# This has known-good numpy 1.x / PyTorch compatibility
+CONTAINER="/home/container/pytorch/pytorch_24.09.sif"
 
 # Verify dataset
 if [ ! -f "coral_danish_dataset/train.json" ]; then
@@ -36,13 +37,24 @@ singularity exec --nv \
     --env "PYTHONNOUSERSITE=1" \
     --env "PYTHONPATH=$PWD/.pip_packages" \
     "$CONTAINER" bash -c "
-    # Install only what we need, explicitly exclude numpy
+    # Install packages with numpy<2 pinned to avoid numpy 2.x / PyTorch incompatibility
+    # See: https://github.com/huggingface/transformers/blob/main/docker/transformers-pytorch-deepspeed-latest-gpu/Dockerfile
     pip install --quiet --no-cache-dir --target=.pip_packages \
-        'transformers>=4.40,<4.50' 'tokenizers>=0.19' huggingface_hub einops \
-        --no-deps --ignore-installed
+        'numpy<2' \
+        'transformers>=4.40,<4.45' \
+        'tokenizers>=0.19' \
+        huggingface_hub \
+        einops
 
-    # Check versions
-    python -c 'import transformers, tokenizers; print(f\"transformers={transformers.__version__}, tokenizers={tokenizers.__version__}\")'
+    # Verify versions
+    python -c '
+import numpy, torch, transformers, tokenizers
+print(f\"numpy={numpy.__version__}\")
+print(f\"torch={torch.__version__}\")
+print(f\"transformers={transformers.__version__}\")
+print(f\"tokenizers={tokenizers.__version__}\")
+print(f\"CUDA available: {torch.cuda.is_available()}\")
+'
 
     torchrun --nproc_per_node=4 --master_port=29500 \
         train_distributed.py \

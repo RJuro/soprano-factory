@@ -61,9 +61,12 @@ export SINGULARITY_CACHEDIR="/raid/${USER}/cache"
 mkdir -p "${SINGULARITY_TMPDIR}" "${SINGULARITY_CACHEDIR}"
 
 # Install compatible dependencies
+# Pin numpy<2 to avoid numpy 2.x / PyTorch incompatibility
+# See: https://github.com/huggingface/transformers/blob/main/docker/transformers-pytorch-deepspeed-latest-gpu/Dockerfile
 echo "Installing compatible dependencies..."
 singularity exec --nv "${CONTAINER_PATH}" \
     pip install --quiet --no-cache-dir \
+    "numpy<2" \
     "transformers>=4.40.0,<4.45.0" \
     "huggingface_hub>=0.20.0" \
     "datasets>=2.14.0" \

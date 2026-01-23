@@ -51,6 +51,7 @@ singularity exec --nv "${CONTAINER_PATH}" bash -c '
 set -e
 echo "=== Installing dependencies ==="
 pip install --quiet --no-cache-dir \
+    "numpy<2" \
     "transformers>=4.40.0,<4.45.0" \
     "huggingface_hub>=0.20.0" \
     "einops>=0.7.0"
