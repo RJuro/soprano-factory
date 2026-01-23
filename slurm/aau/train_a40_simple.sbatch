@@ -63,10 +63,15 @@ if [ ! -f "${INPUT_DIR}/train.json" ]; then
     exit 1
 fi
 
-# Set Singularity environment
-export SINGULARITY_TMPDIR="/raid/${USER}/singularity_tmp"
-export SINGULARITY_CACHEDIR="/raid/${USER}/singularity_cache"
-mkdir -p "${SINGULARITY_TMPDIR}" "${SINGULARITY_CACHEDIR}"
+# Set Singularity environment (with fallback to /tmp if /raid not available)
+if [ -d "/raid/${USER}" ]; then
+    export SINGULARITY_TMPDIR="/raid/${USER}/singularity_tmp"
+    export SINGULARITY_CACHEDIR="/raid/${USER}/singularity_cache"
+else
+    export SINGULARITY_TMPDIR="/tmp/${USER}/singularity_tmp"
+    export SINGULARITY_CACHEDIR="/tmp/${USER}/singularity_cache"
+fi
+mkdir -p "${SINGULARITY_TMPDIR}" "${SINGULARITY_CACHEDIR}" 2>/dev/null || true
 
 # Run training inside container
 # PYTHONNOUSERSITE=1 prevents loading packages from ~/.local
