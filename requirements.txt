@@ -1,7 +1,9 @@
+datasets
 einops
 huggingface_hub
 numpy
 scipy
+soundfile
 torch
 torchaudio
 tqdm
