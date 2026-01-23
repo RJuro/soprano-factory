@@ -1,0 +1,25 @@
+# Axolotl requirements for Soprano TTS training
+# Install with: pip install -r requirements.txt
+
+# Axolotl
+axolotl>=0.5
+
+# Or install from source for latest:
+# axolotl @ git+https://github.com/axolotl-ai-cloud/axolotl.git
+
+# Core dependencies (usually installed with axolotl)
+transformers>=4.51
+tokenizers>=0.20
+torch>=2.0
+peft>=0.11
+datasets>=2.14
+accelerate>=0.30
+
+# DeepSpeed for multi-GPU (optional)
+# deepspeed>=0.14
+
+# Flash Attention (optional, requires CUDA compilation)
+# flash-attn>=2.5
+
+# Monitoring
+# wandb

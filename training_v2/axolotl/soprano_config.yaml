@@ -1,0 +1,120 @@
+# Soprano TTS Training Configuration for Axolotl
+#
+# Axolotl provides flexible, YAML-based configuration for LLM fine-tuning
+# with excellent multi-GPU support via DeepSpeed and FSDP.
+#
+# Usage:
+#   accelerate launch -m axolotl.cli.train soprano_config.yaml
+#
+# For multi-GPU:
+#   accelerate launch --multi_gpu --num_processes 4 -m axolotl.cli.train soprano_config.yaml
+
+# Model Configuration
+base_model: ekwek/Soprano-1.1-80M
+model_type: AutoModelForCausalLM
+tokenizer_type: AutoTokenizer
+trust_remote_code: true
+
+# Load in 16-bit for TTS (better quality than quantized)
+load_in_8bit: false
+load_in_4bit: false
+
+# LoRA Configuration (recommended for TTS)
+adapter: lora
+lora_r: 32
+lora_alpha: 32
+lora_dropout: 0.05
+lora_target_modules:
+  - q_proj
+  - k_proj
+  - v_proj
+  - o_proj
+  - gate_proj
+  - up_proj
+  - down_proj
+lora_target_linear: false  # Only target specified modules
+
+# Dataset Configuration
+datasets:
+  - path: json
+    data_files:
+      - ../../coral_danish_dataset/train.json
+    type: completion  # For TTS, we use completion format
+    field: text
+
+val_set_size: 0.05  # Use 5% for validation if not separate file
+
+# Training Hyperparameters
+sequence_len: 2048
+sample_packing: true  # Pack multiple samples for efficiency
+pad_to_sequence_len: true
+
+# Batch size configuration
+micro_batch_size: 4
+gradient_accumulation_steps: 4
+# Effective batch = micro_batch * grad_accum * num_gpus = 4 * 4 * 4 = 64
+
+num_epochs: 3
+# Or use max_steps instead:
+# max_steps: 2500
+
+# Learning rate
+learning_rate: 2e-4
+lr_scheduler: cosine
+warmup_ratio: 0.1
+
+# Optimizer
+optimizer: adamw_torch_fused
+weight_decay: 0.01
+
+# Precision
+bf16: auto  # Use bf16 if supported
+tf32: true  # Enable TF32 for faster matmul
+
+# Memory optimization
+gradient_checkpointing: true
+gradient_checkpointing_kwargs:
+  use_reentrant: false
+
+# Flash Attention (if available)
+flash_attention: true
+
+# Logging
+logging_steps: 10
+eval_steps: 250
+save_steps: 500
+save_total_limit: 3
+
+# Output
+output_dir: ./outputs/soprano-axolotl
+
+# Evaluation
+do_eval: true
+evaluation_strategy: steps
+
+# Reproducibility
+seed: 42
+
+# DeepSpeed (optional, for large-scale training)
+# Uncomment to enable:
+# deepspeed: deepspeed_configs/zero2.json
+
+# FSDP (alternative to DeepSpeed)
+# fsdp:
+#   - full_shard
+#   - auto_wrap
+# fsdp_config:
+#   fsdp_transformer_layer_cls_to_wrap: Qwen3DecoderLayer
+
+# Wandb logging (optional)
+# wandb_project: soprano-tts
+# wandb_entity: your-entity
+# wandb_run_id:
+# wandb_log_model: checkpoint
+
+# Special tokens (if needed)
+special_tokens:
+  pad_token: "<|endoftext|>"
+
+# Early stopping (optional)
+# early_stopping_patience: 5

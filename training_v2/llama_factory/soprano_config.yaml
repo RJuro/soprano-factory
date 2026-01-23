@@ -1,0 +1,88 @@
+# Soprano TTS Training Configuration for LLaMA-Factory
+#
+# LLaMA-Factory provides a unified interface for fine-tuning 100+ LLMs/VLMs
+# with web UI support and comprehensive training methods.
+#
+# Usage:
+#   llamafactory-cli train soprano_config.yaml
+#
+# Or use the Web UI:
+#   llamafactory-cli webui
+
+### Model Configuration ###
+model_name_or_path: ekwek/Soprano-1.1-80M
+trust_remote_code: true
+
+### Training Method ###
+stage: sft  # Supervised Fine-Tuning
+do_train: true
+finetuning_type: lora  # Options: full, freeze, lora
+
+### LoRA Configuration ###
+lora_rank: 32
+lora_alpha: 32
+lora_dropout: 0.05
+lora_target: q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj
+
+### Dataset Configuration ###
+dataset_dir: ../../coral_danish_dataset
+dataset: soprano_danish  # Will look for soprano_danish in dataset_info.json
+template: default
+
+### Output ###
+output_dir: ./outputs/soprano-llamafactory
+logging_dir: ./outputs/soprano-llamafactory/logs
+
+### Training Hyperparameters ###
+cutoff_len: 2048
+max_samples: 100000
+per_device_train_batch_size: 4
+gradient_accumulation_steps: 4
+learning_rate: 2.0e-4
+num_train_epochs: 3.0
+lr_scheduler_type: cosine
+warmup_ratio: 0.1
+max_grad_norm: 1.0
+
+### Optimization ###
+optim: adamw_torch
+weight_decay: 0.01
+
+### Precision ###
+bf16: true
+tf32: true
+
+### Memory Optimization ###
+gradient_checkpointing: true
+flash_attn: fa2  # Options: disabled, sdpa, fa2
+
+### Logging ###
+logging_steps: 10
+save_steps: 500
+eval_steps: 250
+save_total_limit: 3
+
+### Evaluation ###
+do_eval: true
+val_size: 0.05
+evaluation_strategy: steps
+
+### Reproducibility ###
+seed: 42
+
+### Distributed Training ###
+# For multi-GPU with DeepSpeed:
+# deepspeed: ds_config.json
+
+### Quantization (optional for QLoRA) ###
+# quantization_bit: 4
+# quantization_method: bitsandbytes
+
+### NEFTune (noise embedding) ###
+neftune_noise_alpha: 5
+
+### Packing ###
+packing: true
+
+### Report ###
+report_to: none  # Options: none, wandb, tensorboard

@@ -1,0 +1,28 @@
+# Unsloth requirements for Soprano TTS training
+# Install with: pip install -r requirements.txt
+
+# Unsloth (install from git for latest)
+unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git
+
+# Core dependencies
+transformers>=4.51
+tokenizers>=0.20
+torch>=2.0
+trl>=0.9
+peft>=0.11
+datasets>=2.14
+huggingface_hub>=0.20
+
+# Training utilities
+accelerate>=0.30
+bitsandbytes>=0.43
+safetensors
+sentencepiece
+
+# Optional: for better performance
+# flash-attn  # Requires CUDA compilation
+xformers  # Memory-efficient attention
+
+# Monitoring (optional)
+# wandb
+# tensorboard
