@@ -47,10 +47,10 @@ export SINGULARITY_TMPDIR="/raid/${USER}/tmp"
 export SINGULARITY_CACHEDIR="/raid/${USER}/cache"
 mkdir -p "${SINGULARITY_TMPDIR}" "${SINGULARITY_CACHEDIR}"
 
-# Install deps in container
+# Install deps in container (pinned versions for PyTorch 2.6 compatibility)
 echo "Installing dependencies..."
 singularity exec --nv "${CONTAINER}" \
-    pip install --user -q transformers "datasets<3.0" huggingface_hub tqdm soundfile einops
+    pip install --user -q --force-reinstall "transformers==4.40.2" "datasets<3.0" huggingface_hub tqdm soundfile einops
 
 echo ""
 echo "Starting distributed training..."
