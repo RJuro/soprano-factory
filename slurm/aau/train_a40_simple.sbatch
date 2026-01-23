@@ -17,8 +17,8 @@ echo "Node: ${SLURM_NODELIST}"
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
 echo "============================================"
 
-# Install deps (same as working test_quick.sbatch)
-pip install --user transformers "tokenizers>=0.19.0" huggingface_hub tqdm einops
+# Use the container since pip/python not available on compute nodes
+CONTAINER="/home/container/pytorch/pytorch_24.09.sif"
 
 # Verify dataset
 if [ ! -f "coral_danish_dataset/train.json" ]; then
@@ -26,14 +26,18 @@ if [ ! -f "coral_danish_dataset/train.json" ]; then
     exit 1
 fi
 
-# Run distributed training on 4 GPUs
+# Run distributed training on 4 GPUs inside container
 echo "Starting training on 4 A40 GPUs..."
-torchrun --nproc_per_node=4 --master_port=29500 \
-    train_distributed.py \
-    --input-dir coral_danish_dataset \
-    --save-dir outputs/soprano-danish-a40-$(date +%Y%m%d_%H%M) \
-    --max-steps 2500 \
-    --batch-size 48 \
-    --save-freq 500
+singularity exec --nv "$CONTAINER" bash -c "
+    pip install --quiet --no-cache-dir transformers 'tokenizers>=0.19.0' huggingface_hub einops
+
+    torchrun --nproc_per_node=4 --master_port=29500 \
+        train_distributed.py \
+        --input-dir coral_danish_dataset \
+        --save-dir outputs/soprano-danish-a40-\$(date +%Y%m%d_%H%M) \
+        --max-steps 2500 \
+        --batch-size 48 \
+        --save-freq 500
+"
 
 echo "Done!"
