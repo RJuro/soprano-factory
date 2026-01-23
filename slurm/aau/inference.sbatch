@@ -39,16 +39,20 @@ echo "Text: ${TEXT}"
 echo "Output: ${OUTPUT_PATH}"
 echo "============================================"
 
+# Clean old packages (same as training script)
+rm -rf ~/.local/lib/python*/site-packages/tokenizers* 2>/dev/null || true
+rm -rf ~/.local/lib/python*/site-packages/transformers* 2>/dev/null || true
+
 singularity exec --nv "$CONTAINER" bash -c '
 set -e
 
 # Install compatible versions (same as training script)
-pip install --user --no-cache-dir -q \
+pip install --user --no-cache-dir --force-reinstall -q \
     "numpy<2" \
     "tokenizers>=0.20" \
     "transformers>=4.51" \
     "huggingface_hub>=0.20" \
-    soprano-tts pydub soundfile 2>/dev/null || true
+    pydub soundfile einops 2>/dev/null || true
 
 python inference.py \
     --model "'"${MODEL_PATH}"'" \
