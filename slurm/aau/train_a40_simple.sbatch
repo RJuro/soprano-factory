@@ -11,12 +11,13 @@
 
 # ============================================
 # Soprano Danish TTS - A40 4-GPU Training
-# AAU AI Cloud - Container-based
-# ============================================
-# First run: sbatch slurm/aau/pull_container.sbatch
+# AAU AI Cloud - Uses shared container
 # ============================================
 
 cd $SLURM_SUBMIT_DIR
+
+# Shared PyTorch container on AAU
+CONTAINER="/home/container/pytorch/pytorch_25.09.sif"
 
 # Configuration
 NUM_GPUS=4
@@ -32,14 +33,8 @@ echo "============================================"
 echo "Job ID: ${SLURM_JOB_ID}"
 echo "Node: ${SLURM_NODELIST}"
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
+echo "Container: ${CONTAINER}"
 echo "--------------------------------------------"
-
-# Check container
-if [ ! -f "containers/pytorch.sif" ]; then
-    echo "ERROR: Container not found. Run first:"
-    echo "  sbatch slurm/aau/pull_container.sbatch"
-    exit 1
-fi
 
 # Verify dataset exists
 if [ ! -f "${INPUT_DIR}/train.json" ]; then
@@ -54,7 +49,7 @@ mkdir -p "${SINGULARITY_TMPDIR}" "${SINGULARITY_CACHEDIR}"
 
 # Install deps in container
 echo "Installing dependencies..."
-singularity exec --nv containers/pytorch.sif \
+singularity exec --nv "${CONTAINER}" \
     pip install --user -q transformers "datasets<3.0" huggingface_hub tqdm soundfile einops
 
 echo ""
@@ -65,7 +60,7 @@ echo "Output: ${OUTPUT_DIR}"
 echo "--------------------------------------------"
 
 # Run distributed training
-singularity exec --nv containers/pytorch.sif \
+singularity exec --nv "${CONTAINER}" \
     torchrun \
         --nproc_per_node=${NUM_GPUS} \
         --master_port=${MASTER_PORT} \
