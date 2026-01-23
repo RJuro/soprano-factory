@@ -30,10 +30,10 @@ INPUT_DIR="coral_danish_dataset"
 # IMPORTANT: Ignore user's ~/.local packages to avoid version conflicts
 export PYTHONNOUSERSITE=1
 
-# Use project-local package directory
+# Use project-local package directory and fake HOME to isolate from user packages
 export PIP_TARGET="${SLURM_SUBMIT_DIR}/.packages"
 export PYTHONPATH="${PIP_TARGET}:${PYTHONPATH}"
-mkdir -p "${PIP_TARGET}"
+mkdir -p "${PIP_TARGET}" "${SLURM_SUBMIT_DIR}/.fakehome"
 
 echo "============================================"
 echo "Soprano TTS Training - A40 x${NUM_GPUS}"
@@ -56,12 +56,15 @@ export SINGULARITY_CACHEDIR="/raid/${USER}/cache"
 mkdir -p "${SINGULARITY_TMPDIR}" "${SINGULARITY_CACHEDIR}"
 
 # Install deps to project-local directory (container has torch, torchaudio, numpy)
+# Use fake HOME to avoid ~/.local pollution, pin numpy to container-compatible version
 echo "Installing dependencies to ${PIP_TARGET}..."
 singularity exec --nv \
     --env PYTHONNOUSERSITE=1 \
-    --env PIP_TARGET="${PIP_TARGET}" \
+    --env HOME="${SLURM_SUBMIT_DIR}/.fakehome" \
     "${CONTAINER}" \
-    pip install -q "transformers==4.40.2" "datasets<3.0" "tokenizers<0.20" huggingface_hub tqdm soundfile einops
+    pip install --target="${PIP_TARGET}" --no-cache-dir -q \
+        "numpy<2" "transformers==4.40.2" "datasets<3.0" "tokenizers<0.20" \
+        huggingface_hub tqdm soundfile einops
 
 echo ""
 echo "Starting distributed training..."
@@ -73,6 +76,7 @@ echo "--------------------------------------------"
 # Run distributed training
 singularity exec --nv \
     --env PYTHONNOUSERSITE=1 \
+    --env HOME="${SLURM_SUBMIT_DIR}/.fakehome" \
     --env PYTHONPATH="${PIP_TARGET}" \
     "${CONTAINER}" \
     torchrun \
