@@ -35,7 +35,6 @@ rm -rf ~/.local/lib/python*/site-packages/tokenizers* 2>/dev/null
 rm -rf ~/.local/lib/python*/site-packages/transformers* 2>/dev/null
 
 singularity exec --nv \
-    --env "PYTHONNOUSERSITE=1" \
     "$CONTAINER" bash -c '
     set -e
 
